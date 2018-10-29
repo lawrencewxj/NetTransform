@@ -10,3 +10,4 @@ comparable results to a network trained from scratch.
 - Inducing noise to new units and connections prelude to better networks. The effect is more evident without BathNorm layer.
 
 - Normalizing layer weights before any Net2Net operation increases the speed of learning and gives better convergence. Even so, it worths to investgate better normalization methods than L2 norm.
+
