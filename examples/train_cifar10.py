@@ -1,5 +1,4 @@
 from __future__ import division
-from collections import OrderedDict
 import argparse
 import time
 import torch
@@ -10,7 +9,7 @@ from torchvision import datasets, transforms
 from torch.autograd import Variable
 import sys
 sys.path.append('../')
-from net2net import wider, deeper
+from net2net_original import wider, deeper
 import copy
 import numpy as np
 
@@ -177,7 +176,7 @@ def net2net_deeper_recursive(model):
     return model
 
 
-def train(model, epoch):
+def train(epoch):
     model.train()
     avg_loss = 0
     avg_accu = 0
@@ -192,77 +191,54 @@ def train(model, epoch):
         optimizer.step()
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         avg_accu += pred.eq(target.data.view_as(pred)).cpu().sum()
-        avg_loss += loss.item()
+        avg_loss += loss.data[0]
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item()))
-    avg_loss /= batch_idx + 1
-    avg_accu = avg_accu.item() / len(train_loader.dataset)
+                100. * batch_idx / len(train_loader), loss.data[0]))
+    avg_loss /= float(batch_idx + 1)
+    avg_accu = avg_accu / float(len(train_loader.dataset))
     return avg_accu, avg_loss
 
 
-def test(model):
+def test():
     model.eval()
     test_loss = 0
     correct = 0
+
     with torch.no_grad():
         for data, target in test_loader:
             if args.cuda:
                 data, target = data.cuda(), target.cuda()
             data, target = Variable(data), Variable(target)
             output = model(data)
-            test_loss += F.nll_loss(output, target).item()  # sum up batch loss
+            test_loss += F.nll_loss(output, target, reduction='sum').data[0]  # sum up batch loss
             pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
             correct += pred.eq(target.data.view_as(pred)).cpu().sum()
 
     test_loss /= len(test_loader.dataset)
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
-        100. * float(correct) / len(test_loader.dataset)))
+        100. * correct / len(test_loader.dataset)))
+    return float(correct) / len(test_loader.dataset), test_loss
 
-    return correct.item() / len(test_loader.dataset), test_loss
 
-
-def run_training(model, run_name, epochs, plot=None, lr=args.lr, bt=None):
+def run_training(model, run_name, epochs, plot=None):
     global optimizer
-    best_test = {"epoch": 0, "test_accuracy": 0.0, "validation_accuarcy": 0.00}
-    acc = OrderedDict([('epoch1', 0), ('test_accuracy1', 0.0), ('epoch2', 0), ('test_accuracy2', 0.0)])
     model.cuda()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     if plot is None:
         plot = PlotLearning('./plots/cifar/', 10, prefix=run_name)
-    flag = False
     for epoch in range(1, epochs + 1):
-        accu_train, loss_train = train(model, epoch)
-        accu_test, loss_test = test(model)
+        accu_train, loss_train = train(epoch)
+        accu_test, loss_test = test()
         logs = {}
         logs['acc'] = accu_train
         logs['val_acc'] = accu_test
         logs['loss'] = loss_train
         logs['val_loss'] = loss_test
         plot.plot(logs)
-
-        if bt is not None:
-            if accu_test > bt['test_accuracy'] and flag is False:
-                acc['epoch1'] = bt['epoch']
-                acc['test_accuracy1'] = bt['test_accuracy']
-                acc['epoch2'] = epoch
-                acc['test_accuracy2'] = accu_test
-                flag = True
-
-        if accu_test > best_test["test_accuracy"]:
-            best_test["epoch"] = epoch
-            best_test["test_accuracy"] = accu_test
-            best_test["validation_accuarcy"] = accu_train
-
-    print "========================================="
-    print "the epoch with best test accuracy is:",
-    print best_test
-    print "the accuracy reached with net2net in"
-    print acc
-    print "========================================="
-    return plot, best_test
+    return plot
 
 
 if __name__ == "__main__":
@@ -271,20 +247,9 @@ if __name__ == "__main__":
     model = Net()
     model.cuda()
     criterion = nn.NLLLoss()
-    plot, _ = run_training(model, 'Teacher_', args.epochs)
-
-    # wider teacher training
-    start_t = time.time()
-    print("\n\n > Wider teacher training (from scratch)... ")
-    model_t1 = Net()
-
-    model_t1.define_wider()
-    model_t1.cuda()
-    plot, bt1 = run_training(model_t1, 'Wider_teacher_', args.epochs)
-    print(" >> Time taken for training wider network from scratch {}".format(time.time() - start_t))
+    plot = run_training(model, 'Teacher_', args.epochs)
 
     # wider student training
-    start_t = time.time()
     print("\n\n > Wider Student training ... ")
     model_ = Net()
     model_ = copy.deepcopy(model)
@@ -292,29 +257,39 @@ if __name__ == "__main__":
     del model
     model = model_
     model.net2net_wider()
-    plot, bt2 = run_training(model, 'Wider_student_', args.epochs, plot, args.lr, bt1)
-    print(" >> Time taken for training wider network via net2net {}".format(time.time() - start_t))
-
-
+    plot = run_training(model, 'Wider_student_', args.epochs, plot)
 
     # wider + deeper student training
-    # print("\n\n > Wider+Deeper Student training ... ")
-    # model_ = Net()
-    # model_.net2net_wider()
-    # model_ = copy.deepcopy(model)
-    #
-    # del model
-    # model = model_
-    # model.net2net_deeper_nononline()
-    # run_training(model, 'WiderDeeper_student_', (args.epochs + 1) // 3, plot)
+    print("\n\n > Wider+Deeper Student training ... ")
+    model_ = Net()
+    model_.net2net_wider()
+    model_ = copy.deepcopy(model)
+
+    del model
+    model = model_
+    model.net2net_deeper_nononline()
+    run_training(model, 'WiderDeeper_student_', args.epochs, plot)
+    print(" >> Time tkaen by whole net2net training  {}".format(time.time() - start_t))
+
+    # wider teacher training
+    start_t = time.time()
+    print("\n\n > Wider teacher training ... ")
+    model_ = Net()
+
+    del model
+    model = model_
+    model.define_wider()
+    model.cuda()
+    run_training(model, 'Wider_teacher_', args.epochs)
+    print(" >> Time taken  {}".format(time.time() - start_t))
 
     # wider deeper teacher training
-    # print("\n\n > Wider+Deeper teacher training ... ")
-    # start_t = time.time()
-    # model_ = Net()
-    #
-    # del model
-    # model = model_
-    # model.define_wider_deeper()
-    # run_training(model, 'Wider_Deeper_teacher_', args.epochs + 1)
-    # print(" >> Time taken  {}".format(time.time() - start_t))
+    print("\n\n > Wider+Deeper teacher training ... ")
+    start_t = time.time()
+    model_ = Net()
+
+    del model
+    model = model_
+    model.define_wider_deeper()
+    run_training(model, 'Wider_Deeper_teacher_', args.epochs)
+    print(" >> Time taken  {}".format(time.time() - start_t))
