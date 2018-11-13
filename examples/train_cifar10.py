@@ -107,11 +107,11 @@ class Net(nn.Module):
             print(x.size())
 
     def net2net_wider(self):
-        self.conv1, self.conv2, _ = wider(self.conv1, self.conv2, 12,
+        self.conv1, self.conv2, self.bn1 = wider(self.conv1, self.conv2, 12,
                                           self.bn1, noise=args.noise)
-        self.conv2, self.conv3, _ = wider(self.conv2, self.conv3, 24,
+        self.conv2, self.conv3, self.bn2 = wider(self.conv2, self.conv3, 24,
                                           self.bn2, noise=args.noise)
-        self.conv3, self.fc1, _ = wider(self.conv3, self.fc1, 48,
+        self.conv3, self.fc1, self.bn3 = wider(self.conv3, self.fc1, 48,
                                         self.bn3, noise=args.noise)
         print(self)
 

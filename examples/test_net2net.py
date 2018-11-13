@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 sys.path.append('../')
-from net2net import wider, deeper
+from net2net_original import wider, deeper
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -66,19 +66,21 @@ test_loader = torch.utils.data.DataLoader(
     datasets.CIFAR10('./data', train=False, transform=test_transform),
     batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
-
+live_log = {}
+accuracy_traces = []
+loss_traces = []
 
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 8, 3, padding=1)
-        # self.bn1 = nn.BatchNorm2d(8)
+        self.bn1 = nn.BatchNorm2d(8)
         self.pool1 = nn.MaxPool2d(3, 2)
         self.conv2 = nn.Conv2d(8, 16, 3, padding=1)
-        # self.bn2 = nn.BatchNorm2d(16)
+        self.bn2 = nn.BatchNorm2d(16)
         self.pool2 = nn.MaxPool2d(3, 2)
         self.conv3 = nn.Conv2d(16, 32, 3, padding=1)
-        # self.bn3 = nn.BatchNorm2d(32)
+        self.bn3 = nn.BatchNorm2d(32)
         self.pool3 = nn.AvgPool2d(5, 1)
         self.fc1 = nn.Linear(32 * 3 * 3, 10)
         # for m in self.modules():
@@ -95,15 +97,15 @@ class Net(nn.Module):
     def forward(self, x):
         try:
             x = self.conv1(x)
-            # x = self.bn1(x)
+            x = self.bn1(x)
             x = F.relu(x)
             x = self.pool1(x)
             x = self.conv2(x)
-            # x = self.bn2(x)
+            x = self.bn2(x)
             x = F.relu(x)
             x = self.pool2(x)
             x = self.conv3(x)
-            # x = self.bn3(x)
+            x = self.bn3(x)
             x = F.relu(x)
             x = self.pool3(x)
             x = x.view(-1, x.size(1) * x.size(2) * x.size(3))
@@ -114,12 +116,9 @@ class Net(nn.Module):
             print(x.size())
 
     def net2net_wider(self):
-        self.conv1, self.conv2, _ = wider(self.conv1, self.conv2, 16,
-                                          None, noise=args.noise)
-        self.conv2, self.conv3, _ = wider(self.conv2, self.conv3, 32,
-                                          None, noise=args.noise)
-        self.conv3, self.fc1, _ = wider(self.conv3, self.fc1, 64,
-                                        None, noise=args.noise)
+        self.conv1, self.conv2, self.bn1_ = wider(self.conv1, self.conv2, 16, self.bn1, noise=args.noise)
+        self.conv2, self.conv3, self.bn2 = wider(self.conv2, self.conv3, 32, self.bn2, noise=args.noise)
+        self.conv3, self.fc1, self.bn3 = wider(self.conv3, self.fc1, 64, self.bn3, noise=args.noise)
 
     def net2net_deeper(self):
         s = deeper(self.conv1, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
@@ -138,13 +137,13 @@ class Net(nn.Module):
         self.conv3 = s
 
     def define_wider(self):
-        self.conv1 = nn.Conv2d(3, 12, kernel_size=3, padding=1)
-        self.bn1 = nn.BatchNorm2d(12)
-        self.conv2 = nn.Conv2d(12, 24, kernel_size=3, padding=1)
-        self.bn2 = nn.BatchNorm2d(24)
-        self.conv3 = nn.Conv2d(24, 48, kernel_size=3, padding=1)
-        self.bn3 = nn.BatchNorm2d(48)
-        self.fc1 = nn.Linear(48 * 3 * 3, 10)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, padding=1)
+        self.bn1 = nn.BatchNorm2d(16)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+        self.bn2 = nn.BatchNorm2d(32)
+        self.conv3 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.fc1 = nn.Linear(64* 3 * 3, 10)
 
     def define_deeper(self):
         self.conv1 = nn.Sequential(nn.Conv2d(3, 8, kernel_size=3, padding=1),
@@ -246,15 +245,19 @@ def test(model):
     return correct.item() / len(test_loader.dataset), test_loss
 
 
-def run_training(model, run_name, epochs, plot=None, lr=args.lr, bt=None):
+def run_training(model, run_name, epochs, plot=None, lr=args.lr, bt=None, color='red'):
     global optimizer
     best_test = {"epoch": 0, "test_accuracy": 0.0, "validation_accuarcy": 0.00}
     acc = OrderedDict([('epoch1', 0), ('test_accuracy1', 0.0), ('epoch2', 0), ('test_accuracy2', 0.0)])
     optimizer = optim.SGD(model.parameters(), lr=lr, momentum=args.momentum)
 
     flag = False
-    log = {'model_type': run_name, 'epoch': [], 'train_accuracy': [], 'test_accuracy': [], 'train_loss': [], 'test_loss': []}
+    log = {'model_type': run_name, 'epoch': [],
+           'train_accuracy': [], 'test_accuracy': [], 'train_loss': [], 'test_loss': []}
 
+    live_log[run_name] = {'epoch': [], 'train_accuracy': [], 'test_accuracy': [], 'train_loss': [], 'test_loss': []}
+
+    print 'the color is ============>' + color
     for epoch in range(1, epochs + 1):
         accu_train, loss_train = train(model, epoch)
         accu_test, loss_test = test(model)
@@ -264,6 +267,33 @@ def run_training(model, run_name, epochs, plot=None, lr=args.lr, bt=None):
         log['test_accuracy'].append(accu_test)
         log['train_loss'].append(loss_train)
         log['test_loss'].append(loss_test)
+
+        # live_log[run_name]['epoch'].append(epoch)
+        # live_log[run_name]['train_accuracy'].append(accu_train)
+        # live_log[run_name]['test_accuracy'].append(accu_test)
+        # live_log[run_name]['train_loss'].append(loss_train)
+        # live_log[run_name]['test_loss'].append(loss_test)
+        #
+        # train_accuracy_trace = dict(x=live_log[run_name]['epoch'], y=live_log[run_name]['train_accuracy'],
+        #                             mode="lines", type='custom', line={'color': color, 'dash': 'dash'},
+        #                             name=run_name)
+        # accuracy_traces.append(train_accuracy_trace)
+        # test_accuracy_trace = dict(x=live_log[run_name]['epoch'], y=live_log[run_name]['test_accuracy'],
+        #                            mode="lines", type='custom', line={'color': color,
+        #                                                               'shape': 'spline', 'smoothing': 1.3},
+        #                            name=run_name)
+        # accuracy_traces.append(test_accuracy_trace)
+        #
+        # train_loss_trace = dict(x=live_log[run_name]['epoch'], y=live_log[run_name]['train_loss'],
+        #                         mode="lines", type='custom', line={'color': color, 'dash': 'dash'},
+        #                         name=run_name)
+        # loss_traces.append(train_loss_trace)
+        # test_loss_trace = dict(x=live_log[run_name]['epoch'], y=live_log[run_name]['test_loss'],
+        #                        mode="lines", type='custom', line={'color': color, 'shape': 'spline', 'smoothing': 1.3},
+        #                        name=run_name)
+        # loss_traces.append(test_loss_trace)
+        #
+        # plot.plot_live_logs(accuracy_traces, loss_traces)
 
         if bt is not None:
             if accu_test > bt['test_accuracy'] and flag is False:
@@ -289,8 +319,8 @@ def run_training(model, run_name, epochs, plot=None, lr=args.lr, bt=None):
 
 if __name__ == "__main__":
     logs = []
-    # visdom_plot = PlotLearning('./plots/cifar/', 10, prefix='Net2Net Implementation',
-    #                            plot_name=args.plot_name + '_deeper_wider')
+    visdom_plot = PlotLearning('./plots/cifar/', 10, prefix='Net2Net Implementation',
+                               plot_name=args.plot_name + '_wider')
 
     print("\n\n > Teacher (Base Network) training ... ")
     model = Net()
@@ -298,7 +328,7 @@ if __name__ == "__main__":
     model.cuda()
     print model
     criterion = nn.NLLLoss()
-    plot, _, log_base = run_training(model, 'Teacher', args.epochs)
+    plot, _, log_base = run_training(model, 'Teacher', args.epochs, plot=visdom_plot, color='red')
     logs.append(log_base)
 
     # wider model training from scratch
@@ -307,7 +337,7 @@ if __name__ == "__main__":
     model_t1.define_wider()
     model_t1.double()
     model_t1.cuda()
-    plot, bt1, log = run_training(model_t1, 'Wider_Random_Init', args.epochs)
+    plot, bt1, log = run_training(model_t1, 'Wider_Random_Init', args.epochs, plot=visdom_plot, color='green')
     logs.append(log)
 
     # wider student training from Net2Net
@@ -317,12 +347,12 @@ if __name__ == "__main__":
     model_wider_Net2Net = copy.deepcopy(model)
     model_wider_Net2Net.net2net_wider()
     print model_wider_Net2Net
-    plot, bt2, log = run_training(model_wider_Net2Net, 'Wider_Net2Net', args.epochs,lr=0.005)
+    plot, bt2, log = run_training(model_wider_Net2Net, 'Wider_Net2Net', args.epochs, plot=visdom_plot, color='blue')
     logs.append(log)
 
-    visdom_plot = PlotLearning('./plots/cifar/', 10, prefix='Net2Net Implementation',
-                               plot_name=args.plot_name + "_wider")
-    visdom_plot.plot_logs(logs, args.plot_name)
+    visdom_plot2 = PlotLearning('./plots/cifar/', 10, prefix='Net2Net Implementation',
+                               plot_name=args.plot_name + "_wider_fullplot")
+    visdom_plot2.plot_logs(logs, args.plot_name)
 
     # # For Deeper model training
     #

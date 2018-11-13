@@ -7,10 +7,8 @@ ERROR_TOLERANCE = 1e-3
 
 def add_noise(weights, other_weights):
     noise_range = NOISE_RATIO * np.ptp(other_weights.flatten())
-    noise = th.cuda.DoubleTensor(weights.shape).uniform_(-noise_range / 2.0, noise_range / 2.0)
+    noise = th.cuda.FloatTensor(weights.shape).uniform_(-noise_range / 2.0, noise_range / 2.0)
 
-    # print noise.dtype
-    # print weights.dtype
     return th.add(noise, weights)
 
 
@@ -151,7 +149,6 @@ def _wider_TH(w1, b1, w2, rand):
     sb1 = tb1.clone()
     sw2 = tw2.clone()
 
-
     replication_factor = np.bincount(rand)
 
     for i in range(rand.numel()):
@@ -174,7 +171,7 @@ def _wider_TH(w1, b1, w2, rand):
     verify_TH(w1, b1, w2, sw1.numpy(), sb1.numpy(), sw2.numpy())
 
 
-def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=False, weight_norm=True):
+def wider(m1, m2, new_width, bnorm=None, noise=True, random_init=False, weight_norm=True):
 
     w1 = m1.weight.data
     w2 = m2.weight.data
