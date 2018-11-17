@@ -1,4 +1,6 @@
 import torch as th
+import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
 NOISE_RATIO = 1e-5
@@ -263,96 +265,88 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=
         return m1, m2, bnorm
 
 
-# TODO: Consider adding noise to new layer as wider operator.
-def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
+def deeper(layer, activation_fn=F.relu, bnorm=True):
+    r""" Function preserving deeper operator adding a new layer on top of the
+    given layer.
+
+    Implemented based on Net2Net paper. If a new dense layer is being added, its
+    weight matrix will be set to identity matrix. For convolutional layer, the
+    center element of a input channel (in increasing sequence) is set to 1 and
+    other to 0. This approach only works only for Relu activation function as it
+    is idempotent.
+
+    :param layer: Layer on top of which new layers will be added.
+    :param activation_fn: Activation function to be used for the new layer.
+     Default Relu
+    :param bnorm: Add a batch normalisation layer if True.
+
+    :return: New layers to be added in the network.
     """
-    Deeper operator adding a new layer on topf of the given layer.
-    Args:
-        m (module) - module to add a new layer onto.
-        nonlin (module) - non-linearity to be used for the new layer.
-        bnorm_flag (bool, False) - whether add a batch normalization btw.
-        weight_norm (bool, True) - if True, normalize weights of m before
-            adding a new layer.
-        noise (bool, True) - if True, add noise to the new layer weights.
-    """
 
-    if "Linear" in m.__class__.__name__:
-        m2 = th.nn.Linear(m.out_features, m.out_features)
-        m2.weight.data.copy_(th.eye(m.out_features))
-        m2.bias.data.zero_()
+    if isinstance(layer, nn.Linear) or isinstance(layer, nn.Conv2d):
+        if isinstance(layer, nn.Linear):
+            # Create new linear layer with input and output features equal to
+            # output features of a dense layer on top of which a new dense layer
+            # is being added.
+            new_layer = th.nn.Linear(layer.out_features, layer.out_features)
+            new_layer.weight.data = th.eye(layer.out_features)
+            new_layer.bias.data = th.zeros(layer.out_features)
 
-        if bnorm_flag:
-            bnorm = th.nn.BatchNorm1d(m2.weight.size(1))
-            bnorm.weight.data.fill_(1)
-            bnorm.bias.data.fill_(0)
-            bnorm.running_mean.fill_(0)
-            bnorm.running_var.fill_(1)
+            if bnorm:
+                new_num_features = layer.out_features
+                new_bn_layer = nn.BatchNorm1d(num_features=new_num_features)
+        else:
+            new_filter_shape = layer.kernel_size
+            new_num_channels = layer.out_channels
+            # Create new convolutional layer with number of input and output
+            # channels equal to number of output channel of the layer on top of
+            # which new layer will be placed. The filter shape will be same. And
+            # a padding of 1 is added to maintain previous output dimension.
+            new_layer = th.nn.Conv2d(new_num_channels, new_num_channels,
+                                     kernel_size=layer.kernel_size, padding=1)
 
-    elif "Conv" in m.__class__.__name__:
-        assert m.kernel_size[0] % 2 == 1, "Kernel size needs to be odd"
+            new_layer_weight = th.zeros(
+                (new_num_channels, new_num_channels) + new_filter_shape)
+            center = tuple(map(lambda x: int((x - 1) / 2), new_filter_shape))
+            for i in range(new_num_channels):
+                filter_weight = th.zeros((new_num_channels,) + new_filter_shape)
+                index = (i,) + center
+                filter_weight[index] = 1
+                new_layer_weight[i, ...] = filter_weight
 
-        if m.weight.dim() == 4:
-            pad_h = int((m.kernel_size[0] - 1) / 2)
-            # pad_w = pad_h
-            m2 = th.nn.Conv2d(m.out_channels, m.out_channels,
-                              kernel_size=m.kernel_size, padding=pad_h)
-            m2.weight.data.zero_()
-            c = m.kernel_size[0] // 2 + 1 # = 2
+            new_layer_bias = th.zeros(new_num_channels)
+            # Set new weight and bias for new convolutional layer
+            new_layer.weight.data = new_layer_weight
+            new_layer.bias.data = new_layer_bias
 
-        restore = False
-        if m2.weight.dim() == 2:
-            restore = True
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
+            # Set noise as initial weight and bias for all parameter values for
+            # BN layer
+            if bnorm:
+                new_num_features = layer.out_channels
+                new_bn_layer = nn.BatchNorm2d(num_features=new_num_features)
 
-        # if weight_norm:
-        #     for i in range(m.out_channels):
-        #         weight = m.weight.data
-        #         norm = weight.select(0, i).norm()
-        #         weight.div_(norm)
-        #         m.weight.data = weight
-
-        for i in range(0, m.out_channels):
-            if m.weight.dim() == 4:
-                m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c, 1).narrow(3, c, 1).fill_(1)
-
-        if noise:
-            noise = np.random.normal(scale=5e-2 * m2.weight.data.std(),
-                                     size=list(m2.weight.size()))
-            m2.weight.data += th.FloatTensor(noise).type_as(m2.weight.data)
-
-        if restore:
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
-
-        m2.bias.data.zero_()
-
-        if bnorm_flag:
-            if m.weight.dim() == 4:
-                bnorm = th.nn.BatchNorm2d(m2.out_channels)
-            elif m.weight.dim() == 5:
-                bnorm = th.nn.BatchNorm3d(m2.out_channels)
-            bnorm.weight.data.fill_(1)
-            bnorm.bias.data.fill_(0)
-            bnorm.running_mean.fill_(0)
-            bnorm.running_var.fill_(1)
-
+        new_bn_layer.weight.data = add_noise(
+            th.ones(new_num_features).cuda(), th.Tensor([0, 1]))
+        new_bn_layer.bias.data = add_noise(
+            th.zeros(new_num_features).cuda(), th.Tensor([0, 1]))
+        new_bn_layer.running_mean.data = add_noise(
+            th.zeros(new_num_features).cuda(), th.Tensor([0, 1]))
+        new_bn_layer.running_var.data = add_noise(
+            th.ones(new_num_features).cuda(), th.Tensor([0, 1]))
     else:
-        raise RuntimeError("{} Module not supported".format(m.__class__.__name__))
+        raise RuntimeError(
+            "{} Module not supported".format(layer.__class__.__name__))
 
-    s = th.nn.Sequential()
-    s.add_module('conv', m)
-    if bnorm_flag:
-        s.add_module('bnorm', bnorm)
-    if nonlin is not None:
-        s.add_module('nonlin', nonlin())
-    s.add_module('conv_new', m2)
+    # TODO: Check code to add new layers
+    # s = th.nn.Sequential()
+    # s.add_module('conv', layer)
+    # if bnorm:
+    #     s.add_module('bnorm', new_bn_layer)
+    # if activation_fn is not None:
+    #     s.add_module('nonlin', activation_fn())
+    # s.add_module('conv_new', new_layer)
 
-    return s
+    # return s
 
 
 if __name__ == '__main__':

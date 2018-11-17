@@ -118,19 +118,19 @@ class Net(nn.Module):
                                         None, noise=args.noise)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, nn.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, nn.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, nn.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv3 = s
 
     def net2net_deeper_nononline(self):
-        s = deeper(self.conv1, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv3 = s
 
     def define_wider(self):
@@ -185,7 +185,7 @@ def net2net_deeper_recursive(model):
     """
     for name, module in model._modules.items():
         if isinstance(module, nn.Conv2d):
-            s = deeper(module, nn.ReLU, bnorm_flag=False)
+            s = deeper(module, nn.ReLU, bnorm=False)
             model._modules[name] = s
         elif isinstance(module, nn.Sequential):
             module = net2net_deeper_recursive(module)

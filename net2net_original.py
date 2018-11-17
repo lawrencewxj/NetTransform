@@ -155,6 +155,8 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
                 m2.in_features = new_width*factor
                 # print 'no of features in  5D:' + str(new_width * factor ** 2)
         else:
+            import torch.nn as nn
+            conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
             m2.weight.data = nw2
 
         m1.bias.data = nb1

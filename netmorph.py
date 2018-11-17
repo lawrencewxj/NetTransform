@@ -1,13 +1,15 @@
 import torch as th
+import torch.nn as nn
 import numpy as np
 
-NOISE_RATIO = 1e-5
-ERROR_TOLERANCE = 1e-3
+NOISE_RATIO = 1e-4
+ERROR_TOLERANCE = 1e-5
 
 
 def add_noise(weights, other_weights):
     noise_range = NOISE_RATIO * np.ptp(other_weights.flatten())
-    noise = th.cuda.FloatTensor(weights.shape).uniform_(-noise_range / 2.0, noise_range / 2.0)
+    noise = th.Tensor(weights.shape).uniform_(
+        -noise_range / 2.0, noise_range / 2.0).cuda()
 
     return th.add(noise, weights)
 
@@ -19,16 +21,6 @@ def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, studen
     ori2 = np.zeros((teacher_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new1 = np.zeros((student_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new2 = np.zeros((student_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
-
-    # print "input shape:" + str(inputs.shape)
-    # print "orig 1 shape:" + str(ori1.shape)
-    # print "orig 2 shape:" + str(ori2.shape)
-    # print 'new1 shape' + str(new1.shape)
-    # print 'new2 shape' + str(new2.shape)
-    # print 'teacher 1 shape' + str(teacher_w1.shape)
-    # print 'teacher 2 shape' + str(teacher_w2.shape)
-    # print 'student 1 shape' + str(student_w1.shape)
-    # print 'student 2 shape' + str(student_w2.shape)
 
     for i in range(teacher_w1.shape[0]):
         for j in range(inputs.shape[0]):
@@ -65,85 +57,11 @@ def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, studen
     assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
 
 
-def verify_TF(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, student_w2):
-    import scipy.signal
-    inputs = np.random.rand(teacher_w1.shape[0] * 4, teacher_w1.shape[1] * 4, teacher_w1.shape[2])
-    ori1 = np.zeros((teacher_w1.shape[0] * 4, teacher_w1.shape[1] * 4, teacher_w1.shape[3]))
-    ori2 = np.zeros((teacher_w1.shape[0] * 4, teacher_w1.shape[1] * 4, teacher_w2.shape[3]))
-    new1 = np.zeros((teacher_w1.shape[0] * 4, teacher_w1.shape[1] * 4, student_w1.shape[3]))
-    new2 = np.zeros((teacher_w1.shape[0] * 4, teacher_w1.shape[1] * 4, student_w2.shape[3]))
-
-    for i in range(teacher_w1.shape[3]):
-        for j in range(inputs.shape[2]):
-            if j == 0:
-                tmp = scipy.signal.convolve2d(inputs[:, :, j], teacher_w1[:, :, j, i], mode='same')
-            else:
-                tmp += scipy.signal.convolve2d(inputs[:, :, j], teacher_w1[:, :, j, i], mode='same')
-        ori1[:, :, i] = tmp + teacher_b1[i]
-
-    for i in range(teacher_w2.shape[3]):
-        for j in range(ori1.shape[2]):
-            if j == 0:
-                tmp = scipy.signal.convolve2d(ori1[:, :, j], teacher_w2[:, :, j, i], mode='same')
-            else:
-                tmp += scipy.signal.convolve2d(ori1[:, :, j], teacher_w2[:, :, j, i], mode='same')
-        ori2[:, :, i] = tmp
-
-    for i in range(student_w1.shape[3]):
-        for j in range(inputs.shape[2]):
-            if j == 0:
-                tmp = scipy.signal.convolve2d(inputs[:, :, j], student_w1[:, :, j, i], mode='same')
-            else:
-                tmp += scipy.signal.convolve2d(inputs[:, :, j], student_w1[:, :, j, i], mode='same')
-        new1[:, :, i] = tmp + student_b1[i]
-
-    for i in range(student_w2.shape[3]):
-        for j in range(new1.shape[2]):
-            if j == 0:
-                tmp = scipy.signal.convolve2d(new1[:, :, j], student_w2[:, :, j, i], mode='same')
-            else:
-                tmp += scipy.signal.convolve2d(new1[:, :, j], student_w2[:, :, j, i], mode='same')
-        new2[:, :, i] = tmp
-
-    err = np.abs(np.sum(ori2 - new2))
-
-    assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
-
-
-
-
-
-def _wider_TF(teacher_w1, teacher_b1, teacher_w2, rand):
-
-    replication_factor = np.bincount(rand)
-    student_w1 = teacher_w1.copy()
-    student_w2 = teacher_w2.copy()
-    student_b1 = teacher_b1.copy()
-
-    for i in range(len(rand)):
-        teacher_index = rand[i]
-        new_weight = teacher_w1[:, :, :, teacher_index]
-        new_weight = new_weight[:, :, :, np.newaxis]
-        student_w1 = np.concatenate((student_w1, new_weight), axis=3)
-        student_b1 = np.append(student_b1, teacher_b1[teacher_index])
-
-    for i in range(len(rand)):
-        teacher_index = rand[i]
-        factor = replication_factor[teacher_index] + 1
-        assert factor > 1, 'Error in Net2Wider'
-        new_weight = teacher_w2[:, :, teacher_index, :]*(1./factor)
-        new_weight_re = new_weight[:, :, np.newaxis, :]
-        student_w2 = np.concatenate((student_w2, new_weight_re), axis=2)
-        student_w2[:, :, teacher_index, :] = new_weight
-
-    # verify_TF(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, student_w2)
-
-
 def _wider_TH(w1, b1, w2, rand):
 
-    tw1 = th.from_numpy(w1).type(th.DoubleTensor)
-    tw2 = th.from_numpy(w2).type(th.DoubleTensor)
-    tb1 = th.from_numpy(b1).type(th.DoubleTensor)
+    tw1 = th.from_numpy(w1)
+    tw2 = th.from_numpy(w2)
+    tb1 = th.from_numpy(b1)
 
     sw1 = tw1.clone()
     sb1 = tb1.clone()
@@ -171,7 +89,123 @@ def _wider_TH(w1, b1, w2, rand):
     verify_TH(w1, b1, w2, sw1.numpy(), sb1.numpy(), sw2.numpy())
 
 
-def wider(m1, m2, new_width, bnorm=None, noise=True, random_init=False, weight_norm=True):
+def wider(layer1, layer2, new_width, bnorm=None):
+    r""" Widens the layers in the network.
+
+    Implemented according to NetMorph Widening operation. The next adjacent
+    layer in the network also needs to be be widened due to increase in the
+    width of previous layer.
+
+    :param layer1: The layer to be widened
+    :param layer2: The next adjacent layer to be widened
+    :param new_width: Width of the new layer (output channels/features of first
+    layer and input channels/features of next layer.
+    :param bnorm: BN layer to be widened if provided.
+    :return: widened layers
+    """
+
+    if (isinstance(layer1, nn.Conv2d) or isinstance(layer1, nn.Linear)) and (
+            isinstance(layer2, nn.Conv2d) or isinstance(layer2, nn.Linear)):
+
+        teacher_w1 = layer1.weight.data
+        teacher_b1 = layer1.bias.data
+        teacher_w2 = layer2.weight.data
+        teacher_b2 = layer2.bias.data
+
+        assert new_width > teacher_w1.size(0), "New size should be larger"
+
+        # Widening output channels/features of first layer
+        # Randomly select weight from the first teacher layer and corresponding
+        # bias and add it to first student layer. Add noise to newly created
+        # student layer.
+        student_w1 = teacher_w1.clone()
+        student_b1 = teacher_b1.clone()
+
+        rand_ids = th.randint(low=0, high=teacher_w1.shape[0],
+                              size=((new_width - teacher_w1.shape[0]),))
+
+        for i in range(rand_ids.numel()):
+            teacher_index = int(rand_ids[i].item())
+            new_weight = teacher_w1[teacher_index, ...]
+            new_weight.unsqueeze_(0)
+            student_w1 = th.cat((student_w1, new_weight), dim=0)
+            new_bias = teacher_b1[teacher_index]
+            new_bias.unsqueeze_(0)
+            student_b1 = th.cat((student_b1, new_bias))
+
+        if isinstance(layer1, nn.Conv2d):
+            new_current_layer = nn.Conv2d(
+                out_channels=new_width, in_channels=layer1.in_channels,
+                kernel_size=(3, 3), stride=1, padding=1)
+        else:
+            new_current_layer = nn.Linear(
+                in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
+                out_features=layer2.out_features)
+
+        new_current_layer.weight.data = add_noise(student_w1, teacher_w1)
+        new_current_layer.bias.data = add_noise(student_b1, teacher_b1)
+        layer1 = new_current_layer
+
+        # Widening input channels/features of second layer. Copy the weights
+        # from teacher layer and only add noise to additional filter
+        # channels/features in student layer. The student layer will have same
+        # bias as teacher.
+        new_weight = th.zeros(teacher_w2.shape).cuda()
+        noise = add_noise(new_weight, teacher_w2)
+
+        student_w2 = th.cat((teacher_w2, noise), dim=1)
+
+        if isinstance(layer2, nn.Conv2d):
+            new_next_layer = nn.Conv2d(out_channels=layer2.out_channels,
+                                       in_channels=new_width,
+                                       kernel_size=(3, 3), stride=1, padding=1)
+        else:
+            new_next_layer = nn.Linear(
+                in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
+                out_features=layer2.out_features)
+
+        new_next_layer.weight.data = student_w2
+        new_next_layer.bias.data = teacher_b2
+        layer2 = new_next_layer
+
+    # Widening batch normalisation layer if provided. Only add noise to
+    # additional features for all 4 parameters in the layer i.e. mean, variance,
+    # weight and bias.
+    if bnorm is not None:
+        n_add = new_width - bnorm.num_features
+
+        # get current parameter values
+        bn_weights = bnorm.weight.data
+        bn_bias = bnorm.bias.data
+        bn_running_mean = bnorm.running_mean.data
+        bn_running_var = bnorm.running_var.data
+
+        # set noise for all parameter values
+        weight_noise = add_noise(th.ones(n_add).cuda(), th.Tensor([0, 1]))
+        bias_noise = add_noise(th.zeros(n_add).cuda(), th.Tensor([0, 1]))
+        running_mean_noise = add_noise(th.zeros(n_add).cuda(),
+                                       th.Tensor([0, 1]))
+        running_var_noise = add_noise(th.ones(n_add).cuda(), th.Tensor([0, 1]))
+
+        # append noise to current parameter values to widen
+        new_bn_weights = th.cat((bn_weights, weight_noise))
+        new_bn_bias = th.cat((bn_bias, bias_noise))
+        new_bn_running_mean = th.cat((bn_running_mean, running_mean_noise))
+        new_bn_running_var = th.cat((bn_running_var, running_var_noise))
+
+        # assign new parameter values for new BN layer
+        new_bn_layer = nn.BatchNorm2d(num_features=bnorm.num_features + n_add)
+        new_bn_layer.weight.data = new_bn_weights
+        new_bn_layer.bias.data = new_bn_bias
+        new_bn_layer.running_mean.data = new_bn_running_mean
+        new_bn_layer.running_var.data = new_bn_running_var
+
+        bnorm = new_bn_layer
+
+    return layer1, layer2, bnorm
+
+
+def wider_net2net(m1, m2, new_width, bnorm=None, noise=True):
 
     w1 = m1.weight.data
     w2 = m2.weight.data
@@ -210,7 +244,8 @@ def wider(m1, m2, new_width, bnorm=None, noise=True, random_init=False, weight_n
                 nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
                 nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
 
-        rand_ids = th.randint(low=0, high=w1.shape[0], size=((new_width - w1.shape[0]),))
+        rand_ids = th.randint(low=0, high=w1.shape[0],
+                              size=((new_width - w1.shape[0]),))
         replication_factor = np.bincount(rand_ids)
 
         for i in range(rand_ids.numel()):
@@ -260,122 +295,14 @@ def wider(m1, m2, new_width, bnorm=None, noise=True, random_init=False, weight_n
         return m1, m2, bnorm
 
 
-# TODO: Consider adding noise to new layer as wider operator.
-def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
-    """
-    Deeper operator adding a new layer on topf of the given layer.
-    Args:
-        m (module) - module to add a new layer onto.
-        nonlin (module) - non-linearity to be used for the new layer.
-        bnorm_flag (bool, False) - whether add a batch normalization btw.
-        weight_norm (bool, True) - if True, normalize weights of m before
-            adding a new layer.
-        noise (bool, True) - if True, add noise to the new layer weights.
-    """
-
-    if "Linear" in m.__class__.__name__:
-        m2 = th.nn.Linear(m.out_features, m.out_features)
-        m2.weight.data.copy_(th.eye(m.out_features))
-        m2.bias.data.zero_()
-
-        if bnorm_flag:
-            bnorm = th.nn.BatchNorm1d(m2.weight.size(1))
-            bnorm.weight.data.fill_(1)
-            bnorm.bias.data.fill_(0)
-            bnorm.running_mean.fill_(0)
-            bnorm.running_var.fill_(1)
-
-    elif "Conv" in m.__class__.__name__:
-        assert m.kernel_size[0] % 2 == 1, "Kernel size needs to be odd"
-
-        if m.weight.dim() == 4:
-            pad_h = int((m.kernel_size[0] - 1) / 2)
-            # pad_w = pad_h
-            m2 = th.nn.Conv2d(m.out_channels, m.out_channels,
-                              kernel_size=m.kernel_size, padding=pad_h)
-            m2.weight.data.zero_()
-            c = m.kernel_size[0] // 2 + 1 # = 2
-
-        restore = False
-        if m2.weight.dim() == 2:
-            restore = True
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
-
-        # if weight_norm:
-        #     for i in range(m.out_channels):
-        #         weight = m.weight.data
-        #         norm = weight.select(0, i).norm()
-        #         weight.div_(norm)
-        #         m.weight.data = weight
-
-        for i in range(0, m.out_channels):
-            if m.weight.dim() == 4:
-                m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c, 1).narrow(3, c, 1).fill_(1)
-
-        if noise:
-            noise = np.random.normal(scale=5e-2 * m2.weight.data.std(),
-                                     size=list(m2.weight.size()))
-            m2.weight.data += th.FloatTensor(noise).type_as(m2.weight.data)
-
-        if restore:
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
-
-        m2.bias.data.zero_()
-
-        if bnorm_flag:
-            if m.weight.dim() == 4:
-                bnorm = th.nn.BatchNorm2d(m2.out_channels)
-            elif m.weight.dim() == 5:
-                bnorm = th.nn.BatchNorm3d(m2.out_channels)
-            bnorm.weight.data.fill_(1)
-            bnorm.bias.data.fill_(0)
-            bnorm.running_mean.fill_(0)
-            bnorm.running_var.fill_(1)
-
-    else:
-        raise RuntimeError("{} Module not supported".format(m.__class__.__name__))
-
-    s = th.nn.Sequential()
-    s.add_module('conv', m)
-    if bnorm_flag:
-        s.add_module('bnorm', bnorm)
-    if nonlin is not None:
-        s.add_module('nonlin', nonlin())
-    s.add_module('conv_new', m2)
-
-    return s
-
-
 if __name__ == '__main__':
 
-    # with file('test_data_w1.txt', 'w') as test_data_w1:
-    #     test_data_w1.write('# Array Shape: {0}\n'.format(w1.shape))
-    #     for data_slice in w1:
-    #         for slice2 in data_slice:
-    #             np.savetxt(test_data_w1, slice2, fmt='%-4.8f')
-    #             test_data_w1.write('# BBBB\n')
-    #         test_data_w1.write('# AAAA\n')
-    #
-    # w1_file = np.loadtxt('test_data_w1.txt').reshape(3, 3, 2, 3)
-
-    # for tensor flow verification
+    # for wider operation verification
     new_width = 384
-    w1 = np.random.rand(3, 3, 128, 256)
+    w1 = np.random.rand(256, 128, 3, 3)
     b1 = np.random.rand(256)
-    w2 = np.random.rand(3, 3, 256, 512)
-    rand = np.random.randint(w1.shape[3], size=(new_width - w1.shape[3]))
-    # print(rand)
-    # rand = th.randint(low=0, high=tw1.shape[0], size=((new_width - tw1.shape[0]),))
-    _wider_TF(w1, b1, w2, rand)
+    w2 = np.random.rand(512, 256, 3, 3)
+    rand = np.random.randint(w1.shape[0], size=(new_width - w1.shape[3]))
 
-    # for torch verification
-    w1 = w1.reshape(256, 128, 3, 3)
-    w2 = w2.reshape(512, 256, 3, 3)
     _wider_TH(w1, b1, w2, th.from_numpy(rand))
 

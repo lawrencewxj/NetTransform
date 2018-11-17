@@ -78,9 +78,9 @@ class Net(nn.Module):
         print(self)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=False)
+        s = deeper(self.conv1, nn.ReLU, bnorm=False)
         self.conv1 = s
-        s = deeper(self.conv2, nn.ReLU, bnorm_flag=False)
+        s = deeper(self.conv2, nn.ReLU, bnorm=False)
         self.conv2 = s
         print(self)
 

@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 sys.path.append('../')
-from net2net_original import wider, deeper
+from net2net import wider, deeper
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
@@ -121,19 +121,19 @@ class Net(nn.Module):
         self.conv3, self.fc1, self.bn3 = wider(self.conv3, self.fc1, 64, self.bn3, noise=args.noise)
 
     def net2net_deeper(self):
-        s = deeper(self.conv1, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, F.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, F.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, nn.ReLU, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, F.ReLU, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv3 = s
 
     def net2net_deeper_nononline(self):
-        s = deeper(self.conv1, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv1, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv1 = s
-        s = deeper(self.conv2, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv2, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv2 = s
-        s = deeper(self.conv3, None, bnorm_flag=False, weight_norm=args.weight_norm, noise=args.noise)
+        s = deeper(self.conv3, None, bnorm=False, weight_norm=args.weight_norm, noise=args.noise)
         self.conv3 = s
 
     def define_wider(self):
@@ -188,7 +188,7 @@ def net2net_deeper_recursive(model):
     """
     for name, module in model._modules.items():
         if isinstance(module, nn.Conv2d):
-            s = deeper(module, nn.ReLU, bnorm_flag=False)
+            s = deeper(module, nn.ReLU, bnorm=False)
             model._modules[name] = s
         elif isinstance(module, nn.Sequential):
             module = net2net_deeper_recursive(module)

@@ -206,7 +206,9 @@ def plot_live_data(plot, win_accuracy, win_loss, net_type, epoch,
 def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
     log = {'model_type': net_type, 'epoch': [],
            'train_accuracy': [], 'test_accuracy': [],
-           'train_loss': [], 'test_loss': []}
+           'train_loss': [], 'test_loss': [],
+           'top_train_data': {'epoch': 0, 'accuracy': 0.0, 'loss': 0.0},
+           'top_test_data': {'epoch': 0, 'accuracy': 0.0, 'loss': 0.0}}
 
     for epoch in range(1, args.epochs + 1):
         train_accuracy, train_loss = train(net, epoch)
@@ -218,13 +220,24 @@ def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
         log['train_loss'].append(train_loss)
         log['test_loss'].append(test_loss)
 
+        if test_accuracy > log['top_test_data']['accuracy']:
+            log['top_test_data']['epoch'] = epoch
+            log['top_test_data']['accuracy'] = test_accuracy
+            log['top_test_data']['loss'] = test_loss
+
+        if train_accuracy > log['top_train_data']['accuracy']:
+            log['top_train_data']['epoch'] = epoch
+            log['top_train_data']['accuracy'] = train_accuracy
+            log['top_train_data']['loss'] = train_loss
+
         live_data ={'epoch': epoch, 'train_accuracy': train_accuracy,
                     'test_accuracy': test_accuracy, 'train_loss': train_loss,
                     'test_loss': test_loss}
 
         # Start Plotting live data
-        win_accuracy, win_loss = plot_live_data(
-            plot, win_accuracy, win_loss, net_type, **live_data)
+        if plot is not None:
+            win_accuracy, win_loss = plot_live_data(
+                plot, win_accuracy, win_loss, net_type, **live_data)
 
     return log, win_accuracy, win_loss
 
@@ -232,18 +245,24 @@ def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
 if __name__ == "__main__":
 
     logs = []
-    visdom_plot = PlotLearning('./plots/cifar/', 10, prefix='NetMorph ',
-                               plot_name='NetMorph (' + args.plot_name + ')')
+
+    if args.plot_name is not None:
+        visdom_live_plot = PlotLearning('./plots/cifar/', 10, prefix='NetMorph ',
+                                        plot_name='NetMorph(' + args.plot_name + ')')
+    else:
+        visdom_live_plot = None
 
     print("\n\n > Teacher (Base Network) training ... ")
     teacher_model = ConvNet(CIFAR10)
     teacher_model.cuda()
     print teacher_model
-
+    print(type(teacher_model))
     log_base, win_accuracy, win_loss = start_traning(
-        teacher_model, 'Teacher', visdom_plot)
+        teacher_model, 'Teacher', visdom_live_plot)
     logs.append(log_base)
 
+    teacher_model.net2net_deeper()
+    exit()
     # wider model training from scratch
     print("\n\n > Wider Network training (Wider Random Init)... ")
     wider_random_init_model = ConvNet(CIFAR10)
@@ -252,7 +271,7 @@ if __name__ == "__main__":
     print wider_random_init_model
     log_random_init, win_accuracy, win_loss = start_traning(
         wider_random_init_model, 'WideRandInit',
-        visdom_plot, win_accuracy, win_loss)
+        visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_random_init)
 
     # wider student training from NetMorph
@@ -260,14 +279,32 @@ if __name__ == "__main__":
     model_wider = ConvNet(CIFAR10)
     model_wider.cuda()
     model_wider = copy.deepcopy(teacher_model)
-    model_wider.netmorph_wider(2)
+    model_wider.netmorph_wider(widening_factor=2)
+    print model_wider
     log_netmorph, win_accuracy, win_loss = start_traning(
-        model_wider, 'WideNetMorph', visdom_plot, win_accuracy, win_loss)
+        model_wider, 'WideNetMorph', visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_netmorph)
 
-    visdom_plot2 = PlotLearning('./plots/cifar/', 10, prefix='NetMorph_wider',
-                               plot_name=args.plot_name + "_wider")
-    visdom_plot2.plot_logs(logs, args.plot_name)
+    for log in logs:
+        print '*' * 30
+        print log['model_type']
+        print '*' * 30
+        print 'Best Training Stats...'
+        print 'epoch: {}'.format(log['top_train_data']['epoch'])
+        print 'accuracy:' + str(log['top_train_data']['accuracy'])
+        print 'loss:' + str(log['top_train_data']['loss'])
+        print '-' * 30
+        print 'Best Test Stats...'
+        print 'epoch:' + str(log['top_test_data']['epoch'])
+        print 'accuracy:' + str(log['top_test_data']['accuracy'])
+        print 'loss:' + str(log['top_test_data']['loss'])
+        print '\n'
+
+    if args.plot_name is not None:
+        visdom_plot_final = PlotLearning(
+            './plots/cifar/', 10, prefix='NetMorph_wider',
+            plot_name=args.plot_name + "_wider")
+        visdom_plot_final.plot_logs(logs, args.plot_name)
 
 
 

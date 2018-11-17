@@ -1,19 +1,21 @@
-''' Some helper functions for PyTorch, including:
+"""
+Some helper functions for PyTorch, including:
     - get_mean_and_std: calculate the mean and std value of dataset.
     - msr_init: net parameter initialization.
     - progress_bar: progress bar mimic xlua.progress.
-'''
+"""
 
-import torch
-import numpy as np
+from requests.exceptions import ConnectionError
+from visdom import Visdom
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
-from visdom import Visdom
+import numpy as np
 import os
 import sys
 import time
-
+import torch
 import torch.nn as nn
 import torch.nn.init as init
 
@@ -284,8 +286,12 @@ class PlotLearning(object):
 
     def plot_live_logs(self, accuracy_traces, loss_traces):
 
-        layout = dict(title="Accuracy Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
-        self.viz._send({'data': accuracy_traces, 'layout': layout, 'win': 'Accuracy' + self.plot_name})
+        try:
+            layout = dict(title="Accuracy Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
+            self.viz._send({'data': accuracy_traces, 'layout': layout, 'win': 'Accuracy' + self.plot_name})
 
-        layout = dict(title="Loss Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
-        self.viz._send({'data': loss_traces, 'layout': layout, 'win': 'Loss_' + self.plot_name})
+            layout = dict(title="Loss Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
+            self.viz._send({'data': loss_traces, 'layout': layout, 'win': 'Loss_' + self.plot_name})
+        except ConnectionError:
+            print('Connection error...')
+            time.sleep(5)
