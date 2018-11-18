@@ -1,9 +1,10 @@
 import torch as th
 import torch.nn as nn
+import torch.nn.functional as F
 import numpy as np
 
-NOISE_RATIO = 1e-4
-ERROR_TOLERANCE = 1e-5
+NOISE_RATIO = 1e-2
+ERROR_TOLERANCE = 1e-2
 
 
 def add_noise(weights, other_weights):
@@ -14,7 +15,37 @@ def add_noise(weights, other_weights):
     return th.add(noise, weights)
 
 
-def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, student_w2):
+def _test_wider_operation():
+    ip_channel_1 = 3
+    op_channel_1 = 128
+    ip_channel_2 = op_channel_1
+    op_channel_2 = op_channel_1 * 2
+    new_width = 192
+    kernel_size = 3
+
+    teacher_conv1 = nn.Conv2d(ip_channel_1, op_channel_1, kernel_size).cuda()
+    teacher_bn1 = nn.BatchNorm2d(op_channel_1).cuda()
+    teacher_conv2 = nn.Conv2d(ip_channel_2, op_channel_2, 3).cuda()
+
+    tw1 = teacher_conv1.weight.data.to('cpu') # or .cpu() like below
+    tw2 = teacher_conv2.weight.data.cpu()
+    tb1 = teacher_bn1.weight.data.cpu()
+
+    student_conv1, student_conv2, student_bnorm = wider(
+        teacher_conv1, teacher_conv2, new_width, teacher_bn1)
+    # student_conv1, student_conv2, student_bnorm = wider_net2net(
+    #     teacher_conv1, teacher_conv2, new_width, teacher_bn1)
+
+    sw1 = student_conv1.weight.data.cpu()
+    sw2 = student_conv2.weight.data.cpu()
+    sb1 = student_bnorm.weight.data.cpu()
+
+    verify_weights(tw1.numpy(), tb1.numpy(), tw2.numpy(),
+                   sw1.numpy(), sb1.numpy(), sw2.numpy())
+
+
+def verify_weights(teacher_w1, teacher_b1, teacher_w2,
+                   student_w1, student_b1, student_w2):
     import scipy.signal
     inputs = np.random.rand(teacher_w1.shape[1], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4)
     ori1 = np.zeros((teacher_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
@@ -57,38 +88,6 @@ def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, studen
     assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
 
 
-def _wider_TH(w1, b1, w2, rand):
-
-    tw1 = th.from_numpy(w1)
-    tw2 = th.from_numpy(w2)
-    tb1 = th.from_numpy(b1)
-
-    sw1 = tw1.clone()
-    sb1 = tb1.clone()
-    sw2 = tw2.clone()
-
-    replication_factor = np.bincount(rand)
-
-    for i in range(rand.numel()):
-        teacher_index = int(rand[i].item())
-        new_weight = tw1.select(0, teacher_index)
-        new_weight = new_weight.unsqueeze(0)
-        sw1 = th.cat((sw1, new_weight), dim=0)
-        new_bias = tb1[teacher_index].unsqueeze(0)
-        sb1 = th.cat((sb1, new_bias))
-
-    for i in range(rand.numel()):
-        teacher_index = int(rand[i].item())
-        factor_index = replication_factor[teacher_index] + 1
-        assert factor_index > 1, 'Error in Net2Wider'
-        new_weight = tw2.select(1, teacher_index) * (1. / factor_index)
-        new_weight_re = new_weight.unsqueeze(1)
-        sw2 = th.cat((sw2, new_weight_re), dim=1)
-        sw2[:, teacher_index, :, :] = new_weight
-
-    verify_TH(w1, b1, w2, sw1.numpy(), sb1.numpy(), sw2.numpy())
-
-
 def wider(layer1, layer2, new_width, bnorm=None):
     r""" Widens the layers in the network.
 
@@ -104,6 +103,7 @@ def wider(layer1, layer2, new_width, bnorm=None):
     :return: widened layers
     """
 
+    print 'NetMorph Widening... '
     if (isinstance(layer1, nn.Conv2d) or isinstance(layer1, nn.Linear)) and (
             isinstance(layer2, nn.Conv2d) or isinstance(layer2, nn.Linear)):
 
@@ -205,104 +205,39 @@ def wider(layer1, layer2, new_width, bnorm=None):
     return layer1, layer2, bnorm
 
 
-def wider_net2net(m1, m2, new_width, bnorm=None, noise=True):
+def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
+    print 'NetMorph Deeper ...'
 
-    w1 = m1.weight.data
-    w2 = m2.weight.data
-    b1 = m1.bias.data
-
-    if "Conv" in m1.__class__.__name__ and ("Conv" in m2.__class__.__name__ or "Linear" in m2.__class__.__name__):
-
-        # Convert Linear layers to Conv if linear layer follows target layer
-        if "Conv" in m1.__class__.__name__ and "Linear" in m2.__class__.__name__:
-            assert w2.size(1) % w1.size(0) == 0, "Linear units need to be multiple"
-            if w1.dim() == 4:
-                factor = int(np.sqrt(w2.size(1) // w1.size(0)))
-                w2 = w2.view(
-                    w2.size(0), w2.size(1) // factor ** 2, factor, factor)
+    if isinstance(layer, nn.Linear) or isinstance(layer, nn.Conv2d):
+        if isinstance(layer, nn.Linear):
+            pass
         else:
-            assert w1.size(0) == w2.size(1), "Module weights are not compatible"
+            teacher_weight = layer.weight.data
+            teacher_bias = layer.bias.data
+            k = teacher_weight.size(2)
+            k1 = k
+            k2 = k
+            kc = k1 + k2 - 1
+            pad = nn.ConstantPad2d((kc - k) / 2, 0)
+            new_weight = pad(teacher_weight)
+            f1 = th.rand(teacher_weight.size(0), teacher_weight.size(1), k1, k1)
+            f2 = th.rand(teacher_weight.size(0), teacher_weight.size(0), k2, k2)
 
-        assert new_width > w1.size(0), "New size should be larger"
+            for i in xrange(50):
+                d = 0
 
-        nw1 = w1.clone()
-        nb1 = b1.clone()
-        nw2 = w2.clone()
 
-        old_width = w1.size(0)
+    seq_container = th.nn.Sequential().cuda()
+    seq_container.add_module(prefix + '_conv', layer)
+    if bnorm:
+        seq_container.add_module(prefix + '_bnorm', new_bn_layer)
+    if activation_fn is not None:
+        seq_container.add_module(prefix + '_nonlin', nn.ReLU())
+    seq_container.add_module(prefix + '_conv_new', new_layer)
 
-        if bnorm is not None:
-            nrunning_mean = bnorm.running_mean.clone().resize_(new_width)
-            nrunning_var = bnorm.running_var.clone().resize_(new_width)
-            if bnorm.affine:
-                nweight = bnorm.weight.data.clone().resize_(new_width)
-                nbias = bnorm.bias.data.clone().resize_(new_width)
-
-            nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
-            nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
-            if bnorm.affine:
-                nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
-                nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
-
-        rand_ids = th.randint(low=0, high=w1.shape[0],
-                              size=((new_width - w1.shape[0]),))
-        replication_factor = np.bincount(rand_ids)
-
-        for i in range(rand_ids.numel()):
-            teacher_index = int(rand_ids[i].item())
-            new_weight = w1.select(0, teacher_index)
-            if i > 0:
-                new_weight = add_noise(new_weight, nw1)
-            new_weight = new_weight.unsqueeze(0)
-            nw1 = th.cat((nw1, new_weight), dim=0)
-
-            new_bias = b1[teacher_index].unsqueeze(0)
-            nb1 = th.cat((nb1, new_bias))
-
-            if bnorm is not None:
-                nrunning_mean[old_width + i] = bnorm.running_mean[teacher_index]
-                nrunning_var[old_width + i] = bnorm.running_var[teacher_index]
-                if bnorm.affine:
-                    nweight[old_width + i] = bnorm.weight.data[teacher_index]
-                    nbias[old_width + i] = bnorm.bias.data[teacher_index]
-                bnorm.num_features = new_width
-
-        for i in range(rand_ids.numel()):
-            teacher_index = int(rand_ids[i].item())
-            factor_index = replication_factor[teacher_index] + 1
-            assert factor_index > 1, 'Error in Net2Wider'
-            new_weight = w2.select(1, teacher_index) * (1. / factor_index)
-            new_weight_re = new_weight.unsqueeze(1)
-            nw2 = th.cat((nw2, new_weight_re), dim=1)
-            nw2[:, teacher_index, :, :] = new_weight
-
-        if "Conv" in m1.__class__.__name__ and "Linear" in m2.__class__.__name__:
-            m2.in_features = new_width * factor ** 2
-            m2.weight.data = nw2.view(m2.weight.size(0), new_width * factor ** 2)
-        else:
-            m2.weight.data = nw2
-
-        m1.weight.data = nw1
-        m1.bias.data = nb1
-
-        if bnorm is not None:
-            bnorm.running_var = nrunning_var
-            bnorm.running_mean = nrunning_mean
-            if bnorm.affine:
-                bnorm.weight.data = nweight
-                bnorm.bias.data = nbias
-
-        return m1, m2, bnorm
-
+    return seq_container
 
 if __name__ == '__main__':
 
     # for wider operation verification
-    new_width = 384
-    w1 = np.random.rand(256, 128, 3, 3)
-    b1 = np.random.rand(256)
-    w2 = np.random.rand(512, 256, 3, 3)
-    rand = np.random.randint(w1.shape[0], size=(new_width - w1.shape[3]))
-
-    _wider_TH(w1, b1, w2, th.from_numpy(rand))
-
+    _test_wider_operation()

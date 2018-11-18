@@ -1,10 +1,10 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from netmorph import wider
-from net2net import deeper
+import net2net
+import netmorph
 
-BASE_WIDTH = 4
+BASE_WIDTH = 16
 
 
 class CIFAR10(object):
@@ -59,15 +59,21 @@ class ConvNet(nn.Module):
         except RuntimeError:
             print(x.size())
 
-    def netmorph_wider(self, widening_factor):
+    def wider(self, operation, widening_factor):
         r""" Widen the Convolutional net by given widening factor
 
+        :param widening_factor: Net2Net or NetMorph
         :param widening_factor: factor to increase the width of all layers in
          convolutional net except input channel of first convolutional layer
          and output channel of output layer
 
         :return:
         """
+
+        if operation == 'netmorph':
+            wider = netmorph.wider
+        else:
+            wider = net2net.wider
 
         self.conv1, self.conv2, self.bn1 = wider(
             self.conv1, self.conv2, self.conv1.out_channels * widening_factor,
@@ -78,11 +84,6 @@ class ConvNet(nn.Module):
         self.conv3, self.fc1, self.bn3 = wider(
             self.conv3, self.fc1, self.conv3.out_channels * widening_factor,
             self.bn3)
-
-        # TODO: check for 2 adjacent FC layers
-        # self.fc1, self.fc2, _ = wider(self.fc1, self.fc2,
-        #                               self.fc1.out_channel * widening_factor,
-        #                               self.bn4)
 
     def define_wider(self, widening_factor):
         self.conv1 = nn.Conv2d(
@@ -104,5 +105,59 @@ class ConvNet(nn.Module):
             in_features=self.conv3.out_channels * self.conv3.kernel_size[0] * self.conv3.kernel_size[1],
             out_features=self.net_dataset.NUM_OUTPUT_CLASSES)
 
-    def net2net_deeper(self):
-        s = deeper(self.conv1, F.relu, bnorm=True)
+    def define_deeper(self, deepening_factor=2):
+        conv_layer1 = nn.Conv2d(
+            out_channels=self.conv1.out_channels,
+            in_channels=self.net_dataset.INPUT_CHANNELS,
+            kernel_size=(3, 3), stride=1, padding=1)
+        bn_layer = nn.BatchNorm2d(num_features=conv_layer1.out_channels)
+        activation_fn = nn.ReLU()
+        conv_layer2 = nn.Conv2d(
+            out_channels=conv_layer1.out_channels,
+            in_channels=conv_layer1.out_channels,
+            kernel_size=(3, 3), stride=1, padding=1)
+        self.conv1 = nn.Sequential(conv_layer1, bn_layer,
+                                   activation_fn, conv_layer2)
+        self.bn1 = nn.BatchNorm2d(conv_layer2.out_channels)
+
+        conv_layer1 = nn.Conv2d(
+            out_channels=conv_layer2.out_channels * 2,
+            in_channels=conv_layer2.out_channels,
+            kernel_size=(3, 3), stride=1, padding=1)
+        bn_layer = nn.BatchNorm2d(num_features=conv_layer1.out_channels)
+        activation_fn = nn.ReLU()
+        conv_layer2 = nn.Conv2d(
+            out_channels=conv_layer1.out_channels,
+            in_channels=conv_layer1.out_channels,
+            kernel_size=(3, 3), stride=1, padding=1)
+        self.conv2 = nn.Sequential(conv_layer1, bn_layer,
+                                   activation_fn, conv_layer2)
+        self.bn2 = nn.BatchNorm2d(conv_layer2.out_channels)
+
+        conv_layer1 = nn.Conv2d(
+            out_channels=conv_layer2.out_channels * 2,
+            in_channels=conv_layer2.out_channels,
+            kernel_size=(3, 3), stride=1, padding=1)
+        bn_layer = nn.BatchNorm2d(num_features=conv_layer1.out_channels)
+        activation_fn = nn.ReLU()
+        conv_layer2 = nn.Conv2d(
+            out_channels=conv_layer1.out_channels,
+            in_channels=conv_layer1.out_channels,
+            kernel_size=(3, 3), stride=1, padding=1)
+        self.conv3 = nn.Sequential(conv_layer1, bn_layer,
+                                   activation_fn, conv_layer2)
+        self.bn3 = nn.BatchNorm2d(conv_layer2.out_channels)
+
+        self.fc1 = nn.Linear(
+            conv_layer2.out_channels * conv_layer2.kernel_size[0] * conv_layer2.kernel_size[1],
+            out_features=self.net_dataset.NUM_OUTPUT_CLASSES,)
+
+    def deeper(self, operation):
+        if operation == 'netmorph':
+            deeper = netmorph.deeper
+        else:
+            deeper = net2net.deeper
+
+        self.conv1 = deeper(self.conv1, nn.ReLU, bnorm=True, prefix='l1')
+        self.conv2 = deeper(self.conv2, nn.ReLU, bnorm=True, prefix='l2')
+        self.conv3 = deeper(self.conv3, nn.ReLU, bnorm=True, prefix='l3')

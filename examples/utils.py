@@ -5,12 +5,16 @@ Some helper functions for PyTorch, including:
     - progress_bar: progress bar mimic xlua.progress.
 """
 
+
+
+
 from requests.exceptions import ConnectionError
 from visdom import Visdom
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
+import matplotlib.pyplot as pyplt
 import numpy as np
 import os
 import sys
@@ -19,6 +23,43 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 
+label_names = [
+    'airplane',
+    'automobile',
+    'bird',
+    'cat',
+    'deer',
+    'dog',
+    'frog',
+    'horse',
+    'ship',
+    'truck'
+]
+
+def plot_images(images, cls_true, cls_pred=None):
+    """
+    Adapted from https://github.com/Hvass-Labs/TensorFlow-Tutorials/
+    """
+    fig, axes = plt.subplots(3, 3)
+
+    for i, ax in enumerate(axes.flat):
+        # plot img
+        ax.imshow(images[i, :, :, :], interpolation='spline16')
+
+        # show true & predicted classes
+        cls_true_name = label_names[cls_true[i]]
+        if cls_pred is None:
+            xlabel = "{0} ({1})".format(cls_true_name, cls_true[i])
+        else:
+            cls_pred_name = label_names[cls_pred[i]]
+            xlabel = "True: {0}\nPred: {1}".format(
+                cls_true_name, cls_pred_name
+            )
+        ax.set_xlabel(xlabel)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    plt.show()
 
 # TODO: when executed from bash, image not showing
 def show_sample_image():
@@ -173,15 +214,15 @@ class NLL_loss_instance(torch.nn.NLLLoss):
 
 class PlotLearning(object):
 
-    def __init__(self, save_path, num_classes, prefix='', plot_name=''):
+    def __init__(self, save_path, num_classes, plot_name=''):
         self.DEFAULT_PORT = 9898
         self.DEFAULT_HOSTNAME = 'http://130.83.143.241'
         self.accuracy = []
         self.val_accuracy = []
         self.losses = []
         self.val_losses = []
-        self.save_path_loss = os.path.join(save_path, prefix + 'loss_plot.png')
-        self.save_path_accu = os.path.join(save_path, prefix + 'accu_plot.png')
+        self.save_path_loss = os.path.join(save_path, plot_name + 'loss_plot.png')
+        self.save_path_accu = os.path.join(save_path, plot_name + 'accu_plot.png')
         self.init_loss = -np.log(1.0 / num_classes)
         self.viz = Visdom(port=self.DEFAULT_PORT, server=self.DEFAULT_HOSTNAME)
         self.plot_name = plot_name
@@ -222,76 +263,65 @@ class PlotLearning(object):
         plt.legend()
         plt.savefig(self.save_path_loss)
 
-    def plot_logs(self, logs, plot_name):
+    def plot_logs(self, logs, plot_name, trace_names, colors):
+        accuracy_traces = []
+        loss_traces = []
 
-        # plt.figure()
-        # plt.ylim(0, 1)
-        # plt.ylabel("Accuracy")
-        # plt.xlabel("epochs")
-        # plt.plot(logs[0]['epoch'], logs[0]['train_accuracy'], 'r--', label='base')
-        # plt.plot(logs[0]['epoch'], logs[0]['test_accuracy'], 'r')
-        # plt.plot(logs[1]['epoch'], logs[1]['train_accuracy'], 'g--', label='wider_scratch')
-        # plt.plot(logs[1]['epoch'], logs[1]['test_accuracy'], 'g')
-        # plt.plot(logs[2]['epoch'], logs[2]['train_accuracy'], 'y--', label='net2net')
-        # plt.plot(logs[2]['epoch'], logs[2]['test_accuracy'], 'y')
-        # plt.legend()
-        # plt.savefig(self.save_path_accu)
-        #
-        # plt.figure()
-        # plt.ylim(0, self.init_loss)
-        # plt.ylabel("Loss")
-        # plt.xlabel("epochs")
-        # plt.plot(logs[0]['epoch'], logs[0]['train_loss'], 'r--')
-        # plt.plot(logs[0]['epoch'], logs[0]['test_loss'], 'r')
-        # plt.plot(logs[1]['epoch'], logs[1]['train_loss'], 'g--')
-        # plt.plot(logs[1]['epoch'], logs[1]['test_loss'], 'g')
-        # plt.plot(logs[2]['epoch'], logs[2]['train_loss'], 'y--')
-        # plt.plot(logs[2]['epoch'], logs[2]['test_loss'], 'y')
-        # plt.legend()
-        # plt.savefig(self.save_path_loss)
+        trace_names_index = 0
+        for i in range(len(logs)):
+            trace1 = dict(x=logs[i]['epoch'], y=logs[i]['train_accuracy'],
+                          mode="lines", type='custom',
+                          line={'color': colors[i], 'dash': 'dash'},
+                          name=trace_names[trace_names_index])
+            accuracy_traces.append(trace1)
+            trace_names_index += 1
+            trace2 = dict(x=logs[i]['epoch'], y=logs[i]['test_accuracy'],
+                          mode="lines", type='custom',
+                          line={'color': colors[i], 'shape': 'spline',
+                                'smoothing': 1.3},
+                          name=trace_names[trace_names_index])
+            accuracy_traces.append(trace2)
+            trace_names_index += 1
 
-
-
-        trace1 = dict(x=logs[0]['epoch'], y=logs[0]['train_accuracy'], mode="lines", type='custom',
-                      line={'color': 'blue', 'dash': 'dash'}, name='Base Train Accuracy')
-        trace2 = dict(x=logs[0]['epoch'], y=logs[0]['test_accuracy'], mode="lines", type='custom',
-                      line={'color': 'blue', 'shape': 'spline', 'smoothing': 1.3}, name='Base Test Accuracy')
-        trace3 = dict(x=logs[1]['epoch'], y=logs[1]['train_accuracy'], mode="lines", type='custom',
-                      line={'color': 'green','dash': 'dash'}, name='Wider/Deeper Train Accuracy')
-        trace4 = dict(x=logs[1]['epoch'], y=logs[1]['test_accuracy'], mode="lines", type='custom',
-                      line={'color': 'green', 'shape': 'spline', 'smoothing': 1.3}, name='Wider/Deeper Test Accuracy')
-        trace5 = dict(x=logs[2]['epoch'], y=logs[2]['train_accuracy'], mode="lines", type='custom',
-                      line={'color': 'red', 'dash': 'dash'}, name='Wider/Deeper Net2Net Train Accuracy')
-        trace6 = dict(x=logs[2]['epoch'], y=logs[2]['test_accuracy'], mode="lines", type='custom',
-                      line={'color': 'red', 'shape': 'spline', 'smoothing': 1.3}, name='Wider/Deeper Net2Net Test Accuracy')
-        layout = dict(title="Accuracy Vs Epoch - " + plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
-        self.viz._send({'data': [trace1, trace2, trace3, trace4, trace5, trace6],
+        layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
+                      xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
+        self.viz._send({'data': accuracy_traces,
                         'layout': layout, 'win': 'Accuracy' + self.plot_name})
 
-        trace1 = dict(x=logs[0]['epoch'], y=logs[0]['train_loss'], mode="lines", type='custom',
-                      line={'color': 'blue', 'dash': 'dash'}, name='Base Train Loss')
-        trace2 = dict(x=logs[0]['epoch'], y=logs[0]['test_loss'], mode="lines", type='custom',
-                      line={'color': 'blue', 'shape': 'spline', 'smoothing': 1.3}, name='Base Test loss')
-        trace3 = dict(x=logs[1]['epoch'], y=logs[1]['train_loss'], mode="lines", type='custom',
-                      line={'color': 'green', 'dash': 'dash'}, name='Wider Train Loss')
-        trace4 = dict(x=logs[1]['epoch'], y=logs[1]['test_loss'], mode="lines", type='custom',
-                      line={'color': 'green', 'shape': 'spline', 'smoothing': 1.3}, name='Wider/Deeper Test loss')
-        trace5 = dict(x=logs[2]['epoch'], y=logs[2]['train_loss'], mode="lines", type='custom',
-                      line={'color': 'red', 'dash': 'dash'}, name='Wider Net2Net Train Loss')
-        trace6 = dict(x=logs[2]['epoch'], y=logs[2]['test_loss'], mode="lines", type='custom',
-                      line={'color': 'red', 'shape': 'spline', 'smoothing': 1.3}, name='Wider/Deeper Net2Net Test loss')
-        layout = dict(title="Loss Vs Epoch - " + plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
-        self.viz._send({'data': [trace1, trace2, trace3, trace4, trace5, trace6],
+        trace_names_index = 0
+        for i in range(len(logs)):
+            trace1 = dict(x=logs[i]['epoch'], y=logs[i]['train_loss'],
+                          mode="lines", type='custom',
+                          line={'color': colors[i], 'dash': 'dash'},
+                          name=trace_names[trace_names_index])
+            loss_traces.append(trace1)
+            trace_names_index += 1
+            trace2 = dict(x=logs[i]['epoch'], y=logs[i]['test_loss'],
+                          mode="lines", type='custom',
+                          line={'color': colors[i], 'shape': 'spline',
+                                'smoothing': 1.3},
+                          name=trace_names[trace_names_index])
+            loss_traces.append(trace2)
+            trace_names_index += 1
+
+        layout = dict(title="Loss Vs Epoch - " + self.plot_name,
+                      xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
+        self.viz._send({'data': loss_traces,
                         'layout': layout, 'win': 'Model_' + self.plot_name})
 
     def plot_live_logs(self, accuracy_traces, loss_traces):
 
         try:
-            layout = dict(title="Accuracy Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
-            self.viz._send({'data': accuracy_traces, 'layout': layout, 'win': 'Accuracy' + self.plot_name})
+            layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
+                          xaxis={'title': 'Epochs'},
+                          yaxis={'title': 'Accuracy'})
+            self.viz._send({'data': accuracy_traces, 'layout': layout,
+                            'win': 'Accuracy' + self.plot_name})
 
-            layout = dict(title="Loss Vs Epoch - " + self.plot_name, xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
-            self.viz._send({'data': loss_traces, 'layout': layout, 'win': 'Loss_' + self.plot_name})
+            layout = dict(title="Loss Vs Epoch - " + self.plot_name,
+                          xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
+            self.viz._send({'data': loss_traces, 'layout': layout,
+                            'win': 'Loss_' + self.plot_name})
         except ConnectionError:
             print('Connection error...')
             time.sleep(5)

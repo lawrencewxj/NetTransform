@@ -1,6 +1,5 @@
 import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 
 NOISE_RATIO = 1e-5
@@ -9,30 +8,48 @@ ERROR_TOLERANCE = 1e-3
 
 def add_noise(weights, other_weights):
     noise_range = NOISE_RATIO * np.ptp(other_weights.flatten())
-    noise = th.cuda.DoubleTensor(weights.shape).uniform_(-noise_range / 2.0, noise_range / 2.0)
+    noise = th.Tensor(weights.shape).uniform_(
+        -noise_range / 2.0, noise_range / 2.0).cuda()
 
-    # print noise.dtype
-    # print weights.dtype
     return th.add(noise, weights)
 
+def _test_wider_operation():
+    ip_channel_1 = 3
+    op_channel_1 = 128
+    ip_channel_2 = op_channel_1
+    op_channel_2 = op_channel_1 * 2
+    new_width = 192
+    kernel_size = 3
 
-def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, student_w2):
+    teacher_conv1 = nn.Conv2d(ip_channel_1, op_channel_1, kernel_size).cuda()
+    teacher_bn1 = nn.BatchNorm2d(op_channel_1).cuda()
+    teacher_conv2 = nn.Conv2d(ip_channel_2, op_channel_2, 3).cuda()
+
+    tw1 = teacher_conv1.weight.data.to('cpu') # or .cpu() like below
+    tw2 = teacher_conv2.weight.data.cpu()
+    tb1 = teacher_bn1.weight.data.cpu()
+
+    student_conv1, student_conv2, student_bnorm = wider(
+        teacher_conv1, teacher_conv2, new_width, teacher_bn1)
+    # student_conv1, student_conv2, student_bnorm = wider_net2net(
+    #     teacher_conv1, teacher_conv2, new_width, teacher_bn1)
+
+    sw1 = student_conv1.weight.data.cpu()
+    sw2 = student_conv2.weight.data.cpu()
+    sb1 = student_bnorm.weight.data.cpu()
+
+    verify_weights(tw1.numpy(), tb1.numpy(), tw2.numpy(),
+                   sw1.numpy(), sb1.numpy(), sw2.numpy())
+
+
+def verify_weights(teacher_w1, teacher_b1, teacher_w2,
+                   student_w1, student_b1, student_w2):
     import scipy.signal
     inputs = np.random.rand(teacher_w1.shape[1], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4)
     ori1 = np.zeros((teacher_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     ori2 = np.zeros((teacher_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new1 = np.zeros((student_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new2 = np.zeros((student_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
-
-    # print "input shape:" + str(inputs.shape)
-    # print "orig 1 shape:" + str(ori1.shape)
-    # print "orig 2 shape:" + str(ori2.shape)
-    # print 'new1 shape' + str(new1.shape)
-    # print 'new2 shape' + str(new2.shape)
-    # print 'teacher 1 shape' + str(teacher_w1.shape)
-    # print 'teacher 2 shape' + str(teacher_w2.shape)
-    # print 'student 1 shape' + str(student_w1.shape)
-    # print 'student 2 shape' + str(student_w2.shape)
 
     for i in range(teacher_w1.shape[0]):
         for j in range(inputs.shape[0]):
@@ -67,7 +84,6 @@ def verify_TH(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, studen
     err = np.abs(np.sum(ori2 - new2))
 
     assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
-
 
 def verify_TF(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, student_w2):
     import scipy.signal
@@ -112,7 +128,6 @@ def verify_TF(teacher_w1, teacher_b1, teacher_w2, student_w1, student_b1, studen
     err = np.abs(np.sum(ori2 - new2))
 
     assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
-
 
 
 
@@ -176,16 +191,17 @@ def _wider_TH(w1, b1, w2, rand):
     verify_TH(w1, b1, w2, sw1.numpy(), sb1.numpy(), sw2.numpy())
 
 
-def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=False, weight_norm=True):
+def wider(layer1, layer2, new_width, bnorm=None, out_size=None, noise=True, random_init=False, weight_norm=True):
+    print 'Net2Net Widening... '
+    w1 = layer1.weight.data
+    w2 = layer2.weight.data
+    b1 = layer1.bias.data
+    b2 = layer2.bias.data
 
-    w1 = m1.weight.data
-    w2 = m2.weight.data
-    b1 = m1.bias.data
-
-    if "Conv" in m1.__class__.__name__ and ("Conv" in m2.__class__.__name__ or "Linear" in m2.__class__.__name__):
+    if "Conv" in layer1.__class__.__name__ and ("Conv" in layer2.__class__.__name__ or "Linear" in layer2.__class__.__name__):
 
         # Convert Linear layers to Conv if linear layer follows target layer
-        if "Conv" in m1.__class__.__name__ and "Linear" in m2.__class__.__name__:
+        if "Conv" in layer1.__class__.__name__ and "Linear" in layer2.__class__.__name__:
             assert w2.size(1) % w1.size(0) == 0, "Linear units need to be multiple"
             if w1.dim() == 4:
                 factor = int(np.sqrt(w2.size(1) // w1.size(0)))
@@ -218,11 +234,19 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=
         rand_ids = th.randint(low=0, high=w1.shape[0], size=((new_width - w1.shape[0]),))
         replication_factor = np.bincount(rand_ids)
 
+        if isinstance(layer1, nn.Conv2d):
+            new_current_layer = nn.Conv2d(
+                out_channels=new_width, in_channels=layer1.in_channels,
+                kernel_size=(3, 3), stride=1, padding=1)
+        else:
+            new_current_layer = nn.Linear(
+                in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
+                out_features=layer2.out_features)
+
         for i in range(rand_ids.numel()):
             teacher_index = int(rand_ids[i].item())
             new_weight = w1.select(0, teacher_index)
-            if i > 0:
-                new_weight = add_noise(new_weight, nw1)
+            new_weight = add_noise(new_weight, nw1)
             new_weight = new_weight.unsqueeze(0)
             nw1 = th.cat((nw1, new_weight), dim=0)
 
@@ -237,6 +261,10 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=
                     nbias[old_width + i] = bnorm.bias.data[teacher_index]
                 bnorm.num_features = new_width
 
+        new_current_layer.weight.data = nw1
+        new_current_layer.bias.data = nb1
+        layer1 = new_current_layer
+
         for i in range(rand_ids.numel()):
             teacher_index = int(rand_ids[i].item())
             factor_index = replication_factor[teacher_index] + 1
@@ -246,14 +274,26 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=
             nw2 = th.cat((nw2, new_weight_re), dim=1)
             nw2[:, teacher_index, :, :] = new_weight
 
-        if "Conv" in m1.__class__.__name__ and "Linear" in m2.__class__.__name__:
-            m2.in_features = new_width * factor ** 2
-            m2.weight.data = nw2.view(m2.weight.size(0), new_width * factor ** 2)
+        if isinstance(layer2, nn.Conv2d):
+            new_next_layer = nn.Conv2d(out_channels=layer2.out_channels,
+                                       in_channels=new_width,
+                                       kernel_size=(3, 3), stride=1, padding=1)
         else:
-            m2.weight.data = nw2
+            new_next_layer = nn.Linear(
+                in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
+                out_features=layer2.out_features)
 
-        m1.weight.data = nw1
-        m1.bias.data = nb1
+        if "Conv" in layer1.__class__.__name__ and "Linear" in layer2.__class__.__name__:
+            new_next_layer.in_features = new_width * factor ** 2
+            new_next_layer.weight.data = nw2.view(layer2.weight.size(0), new_width * factor ** 2)
+        else:
+            new_next_layer.weight.data = nw2
+
+        new_next_layer.bias.data = b2
+        layer2 = new_next_layer
+
+        layer1.weight.data = nw1
+        layer1.bias.data = nb1
 
         if bnorm is not None:
             bnorm.running_var = nrunning_var
@@ -262,10 +302,10 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True, random_init=
                 bnorm.weight.data = nweight
                 bnorm.bias.data = nbias
 
-        return m1, m2, bnorm
+        return layer1, layer2, bnorm
 
 
-def deeper(layer, activation_fn=F.relu, bnorm=True):
+def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
     r""" Function preserving deeper operator adding a new layer on top of the
     given layer.
 
@@ -276,13 +316,15 @@ def deeper(layer, activation_fn=F.relu, bnorm=True):
     is idempotent.
 
     :param layer: Layer on top of which new layers will be added.
-    :param activation_fn: Activation function to be used for the new layer.
+    :param activation_fn: Activation function to be used between the two layers.
      Default Relu
-    :param bnorm: Add a batch normalisation layer if True.
+    :param bnorm: Add a batch normalisation layer between two
+    convolutional/dense layers if True.
 
     :return: New layers to be added in the network.
     """
 
+    print 'Net2Net Deeper...'
     if isinstance(layer, nn.Linear) or isinstance(layer, nn.Conv2d):
         if isinstance(layer, nn.Linear):
             # Create new linear layer with input and output features equal to
@@ -337,16 +379,99 @@ def deeper(layer, activation_fn=F.relu, bnorm=True):
         raise RuntimeError(
             "{} Module not supported".format(layer.__class__.__name__))
 
-    # TODO: Check code to add new layers
-    # s = th.nn.Sequential()
-    # s.add_module('conv', layer)
-    # if bnorm:
-    #     s.add_module('bnorm', new_bn_layer)
-    # if activation_fn is not None:
-    #     s.add_module('nonlin', activation_fn())
-    # s.add_module('conv_new', new_layer)
+    seq_container = th.nn.Sequential().cuda()
+    seq_container.add_module(prefix + '_conv', layer)
+    if bnorm:
+        seq_container.add_module(prefix + '_bnorm', new_bn_layer)
+    if activation_fn is not None:
+        seq_container.add_module(prefix + '_nonlin', nn.ReLU())
+    seq_container.add_module(prefix + '_conv_new', new_layer)
 
-    # return s
+    return seq_container
+
+# def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
+#     r""" Function preserving deeper operator adding a new layer on top of the
+#     given layer.
+#
+#     Implemented based on Net2Net paper. If a new dense layer is being added, its
+#     weight matrix will be set to identity matrix. For convolutional layer, the
+#     center element of a input channel (in increasing sequence) is set to 1 and
+#     other to 0. This approach only works only for Relu activation function as it
+#     is idempotent.
+#
+#     :param layer: Layer on top of which new layers will be added.
+#     :param activation_fn: Activation function to be used between the two layers.
+#      Default Relu
+#     :param bnorm: Add a batch normalisation layer between two
+#     convolutional/dense layers if True.
+#
+#     :return: New layers to be added in the network.
+#     """
+#
+#     if isinstance(layer, nn.Linear) or isinstance(layer, nn.Conv2d):
+#         if isinstance(layer, nn.Linear):
+#             # Create new linear layer with input and output features equal to
+#             # output features of a dense layer on top of which a new dense layer
+#             # is being added.
+#             new_layer = th.nn.Linear(layer.out_features, layer.out_features)
+#             new_layer.weight.data = th.eye(layer.out_features)
+#             new_layer.bias.data = th.zeros(layer.out_features)
+#
+#             if bnorm:
+#                 new_num_features = layer.out_features
+#                 new_bn_layer = nn.BatchNorm1d(num_features=new_num_features)
+#         else:
+#             new_filter_shape = layer.kernel_size
+#             new_num_channels = layer.out_channels
+#             # Create new convolutional layer with number of input and output
+#             # channels equal to number of output channel of the layer on top of
+#             # which new layer will be placed. The filter shape will be same. And
+#             # a padding of 1 is added to maintain previous output dimension.
+#             new_layer = th.nn.Conv2d(new_num_channels, new_num_channels,
+#                                      kernel_size=layer.kernel_size, padding=1)
+#
+#             new_layer_weight = th.zeros(
+#                 (new_num_channels, new_num_channels) + new_filter_shape)
+#             center = tuple(map(lambda x: int((x - 1) / 2), new_filter_shape))
+#             for i in range(new_num_channels):
+#                 filter_weight = th.zeros((new_num_channels,) + new_filter_shape)
+#                 index = (i,) + center
+#                 filter_weight[index] = 1
+#                 new_layer_weight[i, ...] = filter_weight
+#
+#             new_layer_bias = th.zeros(new_num_channels)
+#             # Set new weight and bias for new convolutional layer
+#             new_layer.weight.data = new_layer_weight
+#             new_layer.bias.data = new_layer_bias
+#
+#             # Set noise as initial weight and bias for all parameter values for
+#             # BN layer
+#             if bnorm:
+#                 new_num_features = layer.out_channels
+#                 new_bn_layer = nn.BatchNorm2d(num_features=new_num_features)
+#
+#         new_bn_layer.weight.data = add_noise(
+#             th.ones(new_num_features).cuda(), th.Tensor([0, 1]))
+#         new_bn_layer.bias.data = add_noise(
+#             th.zeros(new_num_features).cuda(), th.Tensor([0, 1]))
+#         new_bn_layer.running_mean.data = add_noise(
+#             th.zeros(new_num_features).cuda(), th.Tensor([0, 1]))
+#         new_bn_layer.running_var.data = add_noise(
+#             th.ones(new_num_features).cuda(), th.Tensor([0, 1]))
+#     else:
+#         raise RuntimeError(
+#             "{} Module not supported".format(layer.__class__.__name__))
+#
+#     # TODO: Check code to add new layers
+#     seq_container = th.nn.Sequential()
+#     seq_container.add_module(prefix + '_conv', layer)
+#     if bnorm:
+#         seq_container.add_module(prefix + '_bnorm', new_bn_layer)
+#     if activation_fn is not None:
+#         seq_container.add_module(prefix + '_nonlin', nn.ReLU())
+#     seq_container.add_module(prefix + '_conv_new', new_layer)
+#
+#     return seq_container
 
 
 if __name__ == '__main__':
@@ -361,18 +486,19 @@ if __name__ == '__main__':
     #
     # w1_file = np.loadtxt('test_data_w1.txt').reshape(3, 3, 2, 3)
 
-    # for tensor flow verification
-    new_width = 384
-    w1 = np.random.rand(3, 3, 128, 256)
-    b1 = np.random.rand(256)
-    w2 = np.random.rand(3, 3, 256, 512)
-    rand = np.random.randint(w1.shape[3], size=(new_width - w1.shape[3]))
-    # print(rand)
-    # rand = th.randint(low=0, high=tw1.shape[0], size=((new_width - tw1.shape[0]),))
-    _wider_TF(w1, b1, w2, rand)
-
-    # for torch verification
-    w1 = w1.reshape(256, 128, 3, 3)
-    w2 = w2.reshape(512, 256, 3, 3)
-    _wider_TH(w1, b1, w2, th.from_numpy(rand))
-
+    # # for tensor flow verification
+    # new_width = 384
+    # w1 = np.random.rand(3, 3, 128, 256)
+    # b1 = np.random.rand(256)
+    # w2 = np.random.rand(3, 3, 256, 512)
+    # rand = np.random.randint(w1.shape[3], size=(new_width - w1.shape[3]))
+    # # print(rand)
+    # # rand = th.randint(low=0, high=tw1.shape[0], size=((new_width - tw1.shape[0]),))
+    # _wider_TF(w1, b1, w2, rand)
+    #
+    # # for torch verification
+    # w1 = w1.reshape(256, 128, 3, 3)
+    # w2 = w2.reshape(512, 256, 3, 3)
+    # _wider_TH(w1, b1, w2, th.from_numpy(rand))
+    # for wider operation verification
+    _test_wider_operation()
