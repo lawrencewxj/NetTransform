@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
-NOISE_RATIO = 1e-2
+NOISE_RATIO = 1e-5
 ERROR_TOLERANCE = 1e-2
 
 

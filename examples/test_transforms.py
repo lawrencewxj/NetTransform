@@ -1,7 +1,7 @@
 from __future__ import division
 
-from torchvision import datasets, transforms, utils
-from utils import PlotLearning, progress_bar, plot_images
+from torchvision import datasets, transforms
+from utils import PlotLearning
 import argparse
 import copy
 import numpy as np
@@ -54,7 +54,10 @@ transform = transforms.Compose([
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
-                         std=(0.2023, 0.1994, 0.2010))])
+                         std=(0.2023, 0.1994, 0.2010))]
+    # transforms.Normalize(mean=(0.5, 0.5, 0.5),
+    #                      std=(0.5, 0.5, 0.5))]
+)
 
 train_set = datasets.CIFAR10(
     DATA_DIRECTORY, train=True, download=True, transform=transform)
@@ -64,7 +67,7 @@ train_loader = th.utils.data.DataLoader(
 test_set = datasets.CIFAR10(
     DATA_DIRECTORY, train=False, download=True, transform=transform)
 test_loader = th.utils.data.DataLoader(
-    test_set, batch_size=args.batch_size, shuffle=False, **kwargs)
+    test_set, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
 def train(net, epoch):
@@ -246,17 +249,6 @@ def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
 
 
 if __name__ == "__main__":
-
-    # sample_loader = th.utils.data.DataLoader(
-    #     train_set, batch_size=9, shuffle=True,
-    #     num_workers=8, pin_memory=True,
-    # )
-    # data_iter = iter(sample_loader)
-    # images, labels = data_iter.next()
-    # X = images.numpy().transpose([0, 2, 3, 1])
-    # plot_images(X, labels)
-    # exit()
-
     logs = []
     colors = []
     trace_names = []
@@ -268,17 +260,19 @@ if __name__ == "__main__":
         visdom_live_plot = None
 
     print("\n\n > Teacher (Base Network) training ... ")
-    colors.append('green')
+    colors.append('orange')
     trace_names.extend(['Teacher Train', 'Teacher Test'])
     teacher_model = ConvNet(net_dataset=CIFAR10)
     teacher_model.cuda()
     print teacher_model
     log_base, win_accuracy, win_loss = start_traning(
         teacher_model, 'Teacher', visdom_live_plot)
-    logs.append(log_base)
+    # logs.append(log_base)
 
-    # # wider model training from scratch
+    # wider model training from scratch
     # print("\n\n > Wider Network training (Wider Random Init)... ")
+    # colors.append('green')
+    # trace_names.extend(['Wider Random Train', 'Wider Random Test'])
     # wider_random_init_model = ConvNet(net_dataset=CIFAR10)
     # wider_random_init_model.define_wider(widening_factor=2)
     # wider_random_init_model.cuda()
@@ -287,64 +281,108 @@ if __name__ == "__main__":
     #     wider_random_init_model, 'WideRandInit',
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
-    #
-    # # wider student training from NetMorph
-    # print("\n\n > Wider Student training (NetMorph)... ")
-    # model_wider = ConvNet(net_dataset=CIFAR10)
-    # model_wider.cuda()
-    # model_wider = copy.deepcopy(teacher_model)
-    # model_wider.wider('netmorph', widening_factor=2)
-    # print model_wider
-    # log_netmorph, win_accuracy, win_loss = start_traning(
-    #     model_wider, 'WideNetMorph', visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_netmorph)
-    #
-    # # wider student training from Net2Net
-    # print("\n\n > Wider Student training (Net2Net)... ")
-    # model_wider = ConvNet(net_dataset=CIFAR10)
-    # model_wider.cuda()
-    # model_wider = copy.deepcopy(teacher_model)
-    # model_wider.wider('net2net', widening_factor=2)
-    # print model_wider
+
+    # wider student training from NetMorph
+    print("\n\n > Wider Student training (NetMorph)... ")
+    colors.append('black')
+    trace_names.extend(['Wider NetMorph Train', 'Wider NetMorph Test'])
+    netmorph_model_wider = ConvNet(net_dataset=CIFAR10)
+    netmorph_model_wider.cuda()
+    netmorph_model_wider = copy.deepcopy(teacher_model)
+    netmorph_model_wider.wider('netmorph', widening_factor=2)
+    print netmorph_model_wider
+    log_netmorph, win_accuracy, win_loss = start_traning(
+        netmorph_model_wider, 'WideNetMorph', visdom_live_plot, win_accuracy, win_loss)
+    logs.append(log_netmorph)
+
+    # wider student training from Net2Net
+    print("\n\n > Wider Student training (Net2Net)... ")
+    colors.append('blue')
+    trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
+    n2n_model_wider = copy.deepcopy(teacher_model)
+    n2n_model_wider.wider('net2net', widening_factor=2)
+    print n2n_model_wider
+    log_net2net, win_accuracy, win_loss = start_traning(
+        n2n_model_wider, 'WideNet2Net', visdom_live_plot, win_accuracy, win_loss)
+    logs.append(log_net2net)
+
+    # # # deeper model training from scratch
+    # print("\n\n > Deeper Network training (Random Init)... ")
+    # colors.append('green')
+    # trace_names.extend(['Deeper Random Train', 'Deeper Random Test'])
+    # deeper_random_init_model = ConvNet(net_dataset=CIFAR10)
+    # deeper_random_init_model.define_deeper(deepening_factor=2)
+    # deeper_random_init_model.cuda()
+    # print deeper_random_init_model
+    # log_random_init, win_accuracy, win_loss = start_traning(
+    #     deeper_random_init_model, 'RandInit',
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_random_init)
+
+    # # # Deeper student training from Net2Net
+    # print("\n\n > Deeper Student training (Net2Net)... ")
+    # colors.append('blue')
+    # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
+    # n2n_model_deeper = copy.deepcopy(teacher_model)
+    # n2n_model_deeper.deeper('net2net')
+    # n2n_model_deeper.cuda()
+    # print n2n_model_deeper
     # log_net2net, win_accuracy, win_loss = start_traning(
-    #     model_wider, 'WideNet2Net', visdom_live_plot, win_accuracy, win_loss)
+    #     n2n_model_deeper, 'NetTransform', visdom_live_plot,
+    #     win_accuracy, win_loss)
     # logs.append(log_net2net)
 
-    # if args.plot_name is not None:
-    #     visdom_plot_final = PlotLearning(
-    #         './plots/cifar/', 10, prefix='NetMorph_Wider',
-    #         plot_name=args.plot_name + "_wider")
-    #     visdom_plot_final.plot_logs(logs, args.plot_name)
+    # Deeper student training from NetMorph
+    # print("\n\n > Deeper Student training (NetMorph)... ")
+    # colors.append('black')
+    # trace_names.extend(['Deeper NetMorph Train', 'Deeper NetMorph Test'])
+    # netmorph_model_deeper = copy.deepcopy(teacher_model)
+    # netmorph_model_deeper.deeper('net2morph')
+    # netmorph_model_deeper.cuda()
+    # print netmorph_model_deeper
+    # log_netmorph, win_accuracy, win_loss = start_traning(
+    #     netmorph_model_deeper, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_netmorph)
 
-    # deeper model training from scratch
-    print("\n\n > Deeper Network training (Random Init)... ")
-    colors.append('orange')
-    trace_names.extend(['Deeper Random Train', 'Deeper Random Test'])
-    deeper_random_init_model = ConvNet(net_dataset=CIFAR10)
-    # deeper_random_init_model.define_wider(widening_factor=2)
-    deeper_random_init_model.define_deeper(deepening_factor=2)
-    deeper_random_init_model.cuda()
-    print deeper_random_init_model
-    log_random_init, win_accuracy, win_loss = start_traning(
-        deeper_random_init_model, 'RandInit',
-        visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_random_init)
+    # # wider deeper model training from scratch
+    # print("\n\n > Wider Deeper Network training (Random Init)... ")
+    # colors.append('green')
+    # trace_names.extend(['Wider Deeper Random Train', 'Wider Deeper Random Test'])
+    # deeper_wider_random_init_model = ConvNet(net_dataset=CIFAR10)
+    # deeper_wider_random_init_model.define_wider(widening_factor=2)
+    # deeper_wider_random_init_model.define_deeper(deepening_factor=2)
+    # deeper_wider_random_init_model.cuda()
+    # print deeper_wider_random_init_model
+    # log_random_init, win_accuracy, win_loss = start_traning(
+    #     deeper_wider_random_init_model, 'RandInit',
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_random_init)
 
-    # Deeper student training from Net2Net
-    print("\n\n > Deeper Student training (Net2Net)... ")
-    colors.append('blue')
-    trace_names.extend(
-        ['Deeper Net2Net Train', 'Deeper Net2Net Test'])
-    # model_deeper = ConvNet(net_dataset=CIFAR10)
-    # model_deeper.cuda()
-    model_deeper = copy.deepcopy(teacher_model)
-    # model_deeper.wider('net2net', widening_factor=2)
-    model_deeper.deeper('net2net')
-    model_deeper.cuda()
-    print model_deeper
-    log_netmorph, win_accuracy, win_loss = start_traning(
-        model_deeper, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_netmorph)
+    # # Wider Deeper student training from Net2Net
+    # print("\n\n > Wider Deeper Student training (Net2Net)... ")
+    # colors.append('blue')
+    # trace_names.extend(['Wider Deeper Net2Net Train', 'Wider Deeper Net2Net Test'])
+    # n2n_model_deeper_wider = copy.deepcopy(teacher_model)
+    # n2n_model_deeper_wider.wider('net2net', widening_factor=2)
+    # n2n_model_deeper_wider.deeper('net2net')
+    # n2n_model_deeper_wider.cuda()
+    # print n2n_model_deeper_wider
+    # log_net2net, win_accuracy, win_loss = start_traning(
+    #     n2n_model_deeper_wider, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_net2net)
+
+    # # WiderDeeper student training from NetMorph
+    # print("\n\n > Wider Deeper Student training (NetMorph)... ")
+    # colors.append('black')
+    # trace_names.extend(['Wider Deeper NetMorph Train', 'Wider Deeper NetMorph Test'])
+    # netmorph_model_deeper_wider = copy.deepcopy(teacher_model)
+    # netmorph_model_deeper_wider.deeper('net2morph', widening_factor=2)
+    # netmorph_model_deeper_wider.deeper('net2morph')
+    # netmorph_model_deeper_wider.cuda()
+    # print netmorph_model_deeper_wider
+    # log_netmorph, win_accuracy, win_loss = start_traning(
+    #     netmorph_model_deeper_wider, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_netmorph)
 
     for log in logs:
         print '*' * 30

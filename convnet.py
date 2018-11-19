@@ -39,7 +39,7 @@ class ConvNet(nn.Module):
                                in_channels=self.conv2.out_channels,
                                kernel_size=(3, 3), stride=1, padding=1)
         self.bn3 = nn.BatchNorm2d(num_features=self.conv3.out_channels)
-        self.pool3 = nn.AvgPool2d(5, 1)
+        self.pool3 = nn.AvgPool2d(kernel_size=5, stride=1)
 
         self.fc1 = nn.Linear(
             out_features=self.net_dataset.NUM_OUTPUT_CLASSES,
@@ -161,3 +161,6 @@ class ConvNet(nn.Module):
         self.conv1 = deeper(self.conv1, nn.ReLU, bnorm=True, prefix='l1')
         self.conv2 = deeper(self.conv2, nn.ReLU, bnorm=True, prefix='l2')
         self.conv3 = deeper(self.conv3, nn.ReLU, bnorm=True, prefix='l3')
+        # self.conv1 = deeper(self.conv1, nn.ReLU, bnorm_flag=True)
+        # self.conv2 = deeper(self.conv2, nn.ReLU, bnorm_flag=True)
+        # self.conv3 = deeper(self.conv3, nn.ReLU, bnorm_flag=True)
