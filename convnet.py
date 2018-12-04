@@ -3,6 +3,7 @@ import torch.nn.functional as F
 
 import net2net
 import netmorph
+import net2net_original
 
 BASE_WIDTH = 16
 
@@ -62,7 +63,7 @@ class ConvNet(nn.Module):
     def wider(self, operation, widening_factor):
         r""" Widen the Convolutional net by given widening factor
 
-        :param widening_factor: Net2Net or NetMorph
+        :param operation: Net2Net or NetMorph
         :param widening_factor: factor to increase the width of all layers in
          convolutional net except input channel of first convolutional layer
          and output channel of output layer
@@ -72,8 +73,10 @@ class ConvNet(nn.Module):
 
         if operation == 'netmorph':
             wider = netmorph.wider
-        else:
+        elif operation == 'net2net':
             wider = net2net.wider
+        elif operation == 'net2net_original':
+            wider = net2net_original.wider
 
         self.conv1, self.conv2, self.bn1 = wider(
             self.conv1, self.conv2, self.conv1.out_channels * widening_factor,
@@ -155,8 +158,10 @@ class ConvNet(nn.Module):
     def deeper(self, operation):
         if operation == 'netmorph':
             deeper = netmorph.deeper
-        else:
+        elif operation == 'net2net':
             deeper = net2net.deeper
+        elif operation == 'net2net_original':
+            deeper = net2net_original.deeper()
 
         self.conv1 = deeper(self.conv1, nn.ReLU, bnorm=True, prefix='l1')
         self.conv2 = deeper(self.conv2, nn.ReLU, bnorm=True, prefix='l2')

@@ -4,13 +4,10 @@ Some helper functions for PyTorch, including:
     - msr_init: net parameter initialization.
     - progress_bar: progress bar mimic xlua.progress.
 """
-
-
-
-
 from requests.exceptions import ConnectionError
 from visdom import Visdom
 
+import json
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
@@ -214,7 +211,7 @@ class NLL_loss_instance(torch.nn.NLLLoss):
 
 class PlotLearning(object):
 
-    def __init__(self, save_path, num_classes, plot_name=''):
+    def __init__(self, save_path, num_classes, plot_name='', env_name='experiments'):
         self.DEFAULT_PORT = 9898
         self.DEFAULT_HOSTNAME = 'http://130.83.143.241'
         self.accuracy = []
@@ -224,7 +221,7 @@ class PlotLearning(object):
         self.save_path_loss = os.path.join(save_path, plot_name + 'loss_plot.png')
         self.save_path_accu = os.path.join(save_path, plot_name + 'accu_plot.png')
         self.init_loss = -np.log(1.0 / num_classes)
-        self.viz = Visdom(port=self.DEFAULT_PORT, server=self.DEFAULT_HOSTNAME)
+        self.viz = Visdom(port=self.DEFAULT_PORT, server=self.DEFAULT_HOSTNAME, env = env_name)
         self.plot_name = plot_name
 
     def plot(self, logs):
@@ -263,7 +260,7 @@ class PlotLearning(object):
         plt.legend()
         plt.savefig(self.save_path_loss)
 
-    def plot_logs(self, logs, plot_name, trace_names, colors):
+    def plot_logs(self, logs, trace_names, colors):
         accuracy_traces = []
         loss_traces = []
 
@@ -283,10 +280,13 @@ class PlotLearning(object):
             accuracy_traces.append(trace2)
             trace_names_index += 1
 
+        with open(os.path.join('./logs', 'accuracy_' + self.plot_name +'.json'), 'w') as accuracy_file:
+            json.dump(accuracy_traces, accuracy_file)
+
         layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
                       xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
         self.viz._send({'data': accuracy_traces,
-                        'layout': layout, 'win': 'Accuracy' + self.plot_name})
+                        'layout': layout, 'win': 'Accuracy_' + self.plot_name})
 
         trace_names_index = 0
         for i in range(len(logs)):
@@ -304,10 +304,18 @@ class PlotLearning(object):
             loss_traces.append(trace2)
             trace_names_index += 1
 
+        with open(
+                os.path.join('./logs', 'loss_' + self.plot_name + '.json'),
+                'w') as loss_file:
+            json.dump(loss_traces, loss_file)
+
         layout = dict(title="Loss Vs Epoch - " + self.plot_name,
                       xaxis={'title': 'Epochs'}, yaxis={'title': 'Loss'})
         self.viz._send({'data': loss_traces,
-                        'layout': layout, 'win': 'Model_' + self.plot_name})
+                        'layout': layout, 'win': 'Loss_' + self.plot_name})
+
+
+
 
     def plot_live_logs(self, accuracy_traces, loss_traces):
 

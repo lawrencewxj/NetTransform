@@ -13,6 +13,7 @@ def add_noise(weights, other_weights):
 
     return th.add(noise, weights)
 
+
 def _test_wider_operation():
     ip_channel_1 = 3
     op_channel_1 = 128
@@ -99,9 +100,9 @@ def wider(layer1, layer2, new_width, bnorm=None):
         if isinstance(layer1, nn.Conv2d)  and isinstance(layer2, nn.Linear):
             assert w2.size(1) % w1.size(0) == 0, "Linear units need to be multiple"
             if w1.dim() == 4:
-                factor = int(np.sqrt(w2.size(1) // w1.size(0)))
+                kernel_size = int(np.sqrt(w2.size(1) // w1.size(0)))
                 w2 = w2.view(
-                    w2.size(0), w2.size(1) // factor ** 2, factor, factor)
+                    w2.size(0), w2.size(1) // kernel_size ** 2, kernel_size, kernel_size)
         else:
             assert w1.size(0) == w2.size(1), "Module weights are not compatible"
 
@@ -120,14 +121,11 @@ def wider(layer1, layer2, new_width, bnorm=None):
                 nweight = bnorm.weight.data.clone().resize_(new_width)
                 nbias = bnorm.bias.data.clone().resize_(new_width)
 
-            nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
-            nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
-            if bnorm.affine:
-                nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
-                nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
-
-        rand_ids = th.randint(low=0, high=w1.shape[0], size=((new_width - w1.shape[0]),))
-        replication_factor = np.bincount(rand_ids)
+            # nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
+            # nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
+            # if bnorm.affine:
+            #     nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
+            #     nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
 
         if isinstance(layer1, nn.Conv2d):
             new_current_layer = nn.Conv2d(
@@ -137,6 +135,10 @@ def wider(layer1, layer2, new_width, bnorm=None):
             new_current_layer = nn.Linear(
                 in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
                 out_features=layer2.out_features)
+
+        rand_ids = th.randint(low=0, high=w1.shape[0],
+                              size=((new_width - w1.shape[0]),))
+        replication_factor = np.bincount(rand_ids)
 
         for i in range(rand_ids.numel()):
             teacher_index = int(rand_ids[i].item())
@@ -159,35 +161,41 @@ def wider(layer1, layer2, new_width, bnorm=None):
         new_current_layer.bias.data = nb1
         layer1 = new_current_layer
 
+        # Copy the weights from input channel of next layer and append it after
+        # dividing the selected filter by replication factor.
         for i in range(rand_ids.numel()):
             teacher_index = int(rand_ids[i].item())
-            factor_index = replication_factor[teacher_index] + 1
-            assert factor_index > 1, 'Error in Net2Wider'
-            new_weight = w2.select(1, teacher_index) * (1. / factor_index)
+            factor = replication_factor[teacher_index] + 1
+            assert factor > 1, 'Error in Net2Wider'
+            # Calculate new weight according to replication factor
+            new_weight = w2.select(1, teacher_index) * (1. / factor)
+            # Append the new weight increasing its input channel
             new_weight_re = new_weight.unsqueeze(1)
             nw2 = th.cat((nw2, new_weight_re), dim=1)
+            # Assign the calculated new weight to replicated filter
             nw2[:, teacher_index, :, :] = new_weight
 
         if isinstance(layer2, nn.Conv2d):
             new_next_layer = nn.Conv2d(out_channels=layer2.out_channels,
                                        in_channels=new_width,
                                        kernel_size=(3, 3), stride=1, padding=1)
+            new_next_layer.weight.data = nw2
         else:
             new_next_layer = nn.Linear(
                 in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
                 out_features=layer2.out_features)
+            # Convert the 4D tensor to 2D tensor for linear layer i.e. reverse
+            # the earlier effect when linear layer was converted to
+            # convolutional layer.
+            new_next_layer.weight.data = nw2.view(
+                layer2.weight.size(0), new_width * kernel_size ** 2)
 
-        if isinstance(layer1, nn.Conv2d) and isinstance(layer2, nn.Linear):
-            new_next_layer.in_features = new_width * factor ** 2
-            new_next_layer.weight.data = nw2.view(layer2.weight.size(0), new_width * factor ** 2)
-        else:
-            new_next_layer.weight.data = nw2
-
+        # Set the bias for new next layer as previous bias for next layer
         new_next_layer.bias.data = b2
         layer2 = new_next_layer
 
-        layer1.weight.data = nw1
-        layer1.bias.data = nb1
+        # layer1.weight.data = nw1
+        # layer1.bias.data = nb1
 
         if bnorm is not None:
             bnorm.num_features = new_width

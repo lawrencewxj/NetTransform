@@ -4,7 +4,7 @@ from collections import Counter
 
 
 def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
-          random_init=True, weight_norm=True):
+          random_init=False, weight_norm=True):
     """
     Convert m1 layer to its wider version by adapthing next weight layer and
     possible batch norm layer in btw.
@@ -34,8 +34,6 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
             if w1.dim() == 4:
                 factor = int(np.sqrt(w2.size(1) // w1.size(0)))
                 w2 = w2.view(w2.size(0), w2.size(1)//factor**2, factor, factor)
-                # print "w2 shape",
-                # print w2.shape
             elif w1.dim() == 5:
                 assert out_size is not None,\
                        "For conv3d -> linear out_size is necessary"
@@ -53,12 +51,12 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
         if nw1.dim() == 4:
             nw1.resize_(new_width, nw1.size(1), nw1.size(2), nw1.size(3))
             nw2.resize_(nw2.size(0), new_width, nw2.size(2), nw2.size(3))
-        elif nw1.dim() == 5:
-            nw1.resize_(new_width, nw1.size(1), nw1.size(2), nw1.size(3), nw1.size(4))
-            nw2.resize_(nw2.size(0), new_width, nw2.size(2), nw2.size(3), nw2.size(4))
-        else:
-            nw1.resize_(new_width, nw1.size(1))
-            nw2.resize_(nw2.size(0), new_width)
+        # elif nw1.dim() == 5:
+        #     nw1.resize_(new_width, nw1.size(1), nw1.size(2), nw1.size(3), nw1.size(4))
+        #     nw2.resize_(nw2.size(0), new_width, nw2.size(2), nw2.size(3), nw2.size(4))
+        # else:
+        #     nw1.resize_(new_width, nw1.size(1))
+        #     nw2.resize_(nw2.size(0), new_width)
 
         if b1 is not None:
             nb1 = m1.bias.data.clone()
@@ -78,12 +76,12 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
         nw2.narrow(0, 0, old_width).copy_(w2)
         nb1.narrow(0, 0, old_width).copy_(b1)
 
-        if bnorm is not None:
-            nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
-            nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
-            if bnorm.affine:
-                nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
-                nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
+        # if bnorm is not None:
+        #     nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
+        #     nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
+        #     if bnorm.affine:
+        #         nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
+        #         nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
 
         # TEST:normalize weights
         if weight_norm:
@@ -102,19 +100,20 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
                 tracking[idx].append(i)
 
             # TEST:random init for new units
-            if random_init:
+            if not random_init:
+                nw1.select(0, i).copy_(w1.select(0, idx).clone())
+                nw2.select(0, i).copy_(w2.select(0, idx).clone())
+            else:
                 n = m1.kernel_size[0] * m1.kernel_size[1] * m1.out_channels
                 if m2.weight.dim() == 4:
                     n2 = m2.kernel_size[0] * m2.kernel_size[1] * m2.out_channels
                 elif m2.weight.dim() == 5:
-                    n2 = m2.kernel_size[0] * m2.kernel_size[1] * m2.kernel_size[2] * m2.out_channels
+                    n2 = m2.kernel_size[0] * m2.kernel_size[1] * m2.kernel_size[
+                        2] * m2.out_channels
                 elif m2.weight.dim() == 2:
                     n2 = m2.out_features * m2.in_features
-                nw1.select(0, i).normal_(0, np.sqrt(2./n))
-                nw2.select(0, i).normal_(0, np.sqrt(2./n2))
-            else:
-                nw1.select(0, i).copy_(w1.select(0, idx).clone())
-                nw2.select(0, i).copy_(w2.select(0, idx).clone())
+                nw1.select(0, i).normal_(0, np.sqrt(2. / n))
+                nw2.select(0, i).normal_(0, np.sqrt(2. / n2))
             nb1[i] = b1[idx]
 
             if bnorm is not None:
@@ -137,6 +136,10 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
         m2.in_channels = new_width
 
         if noise:
+            # NOISE_RATIO = 1e-5
+            # noise_range = NOISE_RATIO * np.ptp(w1.flatten())
+            # noise = th.Tensor(nw1.shape).uniform_(-noise_range / 2.0, noise_range / 2.0).cuda()
+            # nw1 = th.add(noise, nw1)
             noise = np.random.normal(scale=5e-2 * nw1.std(),
                                      size=list(nw1.size()))
             nw1 += th.FloatTensor(noise).type_as(nw1)
@@ -145,18 +148,12 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
 
         if "Conv" in m1.__class__.__name__ and "Linear" in m2.__class__.__name__:
             if w1.dim() == 4:
-                # print "nw2 shape",
-                # print nw2.shape
                 m2.weight.data = nw2.view(m2.weight.size(0), new_width*factor**2)
                 m2.in_features = new_width*factor**2
-                # print 'no of features:' + str(new_width*factor**2)
             elif w2.dim() == 5:
                 m2.weight.data = nw2.view(m2.weight.size(0), new_width*factor)
                 m2.in_features = new_width*factor
-                # print 'no of features in  5D:' + str(new_width * factor ** 2)
         else:
-            import torch.nn as nn
-            conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
             m2.weight.data = nw2
 
         m1.bias.data = nb1
@@ -167,16 +164,11 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
             if bnorm.affine:
                 bnorm.weight.data = nweight
                 bnorm.bias.data = nbias
-
-        # print m1.weight.data.shape
-        # print m1.bias.data.shape
-        # print m2.weight.data.shape
-
         return m1, m2, bnorm
 
 
 # TODO: Consider adding noise to new layer as wider operator.
-def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
+def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True, prefix=''):
     """
     Deeper operator adding a new layer on topf of the given layer.
     Args:
@@ -242,9 +234,6 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True):
             elif m.weight.dim() == 5:
                 m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 
-        print(m2.weight.data.shape)
-        print(m2.weight.data[0,0:4])
-        exit()
         if noise:
             noise = np.random.normal(scale=5e-2 * m2.weight.data.std(),
                                      size=list(m2.weight.size()))

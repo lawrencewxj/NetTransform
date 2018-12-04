@@ -7,6 +7,8 @@ import copy
 import numpy as np
 import sys
 import torch as th
+import torch.nn as nn
+import torch.nn.init as init
 import torch.optim as optim
 
 sys.path.append('../')
@@ -38,6 +40,7 @@ parser.add_argument('--noise', type=int, default=1,
 parser.add_argument('--weight-norm', type=int, default=1,
                     help='norm or no weight norm 0-1')
 parser.add_argument('--plot-name', help='name of the plot (win) to be shown in visdom')
+parser.add_argument('--env-name', help='env of the plot in visdom')
 parser.add_argument('-v', help='Verbose')
 
 args = parser.parse_args()
@@ -49,32 +52,50 @@ if use_cuda:
 
 kwargs = {'num_workers': 8, 'pin_memory': True} if use_cuda else {}
 
-transform = transforms.Compose([
+train_transform = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
     transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
-                         std=(0.2023, 0.1994, 0.2010))]
-    # transforms.Normalize(mean=(0.5, 0.5, 0.5),
-    #                      std=(0.5, 0.5, 0.5))]
-)
+                         std=(0.2023, 0.1994, 0.2010))])
+
+test_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
+                         std=(0.2023, 0.1994, 0.2010))])
+
+# train_transform = transforms.Compose(
+#              [
+#               transforms.ToTensor(),
+#               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+#
+# test_transform = transforms.Compose(
+#              [transforms.ToTensor(),
+#               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 train_set = datasets.CIFAR10(
-    DATA_DIRECTORY, train=True, download=True, transform=transform)
+    DATA_DIRECTORY, train=True, download=True, transform=train_transform)
 train_loader = th.utils.data.DataLoader(
     train_set, batch_size=args.batch_size, shuffle=True, **kwargs)
 
 test_set = datasets.CIFAR10(
-    DATA_DIRECTORY, train=False, download=True, transform=transform)
+    DATA_DIRECTORY, train=False, download=True, transform=test_transform)
 test_loader = th.utils.data.DataLoader(
     test_set, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
-def train(net, epoch):
+def weights_init(m):
+    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+        # init.kaiming_uniform_(m.weight.data, nonlinearity='relu')
+        init.xavier_normal_(m.weight.data, gain=init.calculate_gain('relu'))
+        m.bias.data.fill_(0.0)
+
+
+def train(net, optimizer, scheduler, epoch):
     # Set the net to train mode. Only applies for certain modules when
     # BatchNorm or Drop outs are used in the net.
+    # scheduler.step()
     net.train(mode=True)
-    optimizer = optim.Adam(net.parameters(), lr=args.lr, weight_decay=0.001)
 
     running_loss = 0.0
     num_correct_predictions = 0
@@ -170,46 +191,50 @@ def test(net, verbose=False):
 def plot_live_data(plot, win_accuracy, win_loss, net_type, epoch,
                    train_accuracy, test_accuracy, train_loss, test_loss):
 
-    if win_accuracy is None:
-        win_accuracy = plot.viz.line(
-            X=np.array([epoch]), Y=np.array([train_accuracy]),
-            name=net_type + '_TA',
-            opts=dict(xlabel='Epochs', ylabel='Accuracy',
-                      title='Accuracy Vs Epoch - ' + plot.plot_name)
-        )
-        plot.viz.line(X=np.array([0]), Y=np.array([test_accuracy]),
-                      win=win_accuracy,
-                      name=net_type + '_VA', update='append')
-    else:
-        plot.viz.line(X=np.array([epoch]), Y=np.array([train_accuracy]),
-                      name=net_type + '_TA', win=win_accuracy,
-                      update='append')
-        plot.viz.line(X=np.array([epoch]), Y=np.array([test_accuracy]),
-                      name=net_type + '_VA', win=win_accuracy,
-                      update='append')
+    try:
+        if win_accuracy is None:
+            win_accuracy = plot.viz.line(
+                X=np.array([epoch]), Y=np.array([train_accuracy]),
+                name=net_type + '_TA',
+                opts=dict(xlabel='Epochs', ylabel='Accuracy',
+                          title='Accuracy Vs Epoch - ' + plot.plot_name)
+            )
+            plot.viz.line(X=np.array([0]), Y=np.array([test_accuracy]),
+                          win=win_accuracy,
+                          name=net_type + '_VA', update='append')
+        else:
+            plot.viz.line(X=np.array([epoch]), Y=np.array([train_accuracy]),
+                          name=net_type + '_TA', win=win_accuracy,
+                          update='append')
+            plot.viz.line(X=np.array([epoch]), Y=np.array([test_accuracy]),
+                          name=net_type + '_VA', win=win_accuracy,
+                          update='append')
 
-    if win_loss is None:
-        win_loss = plot.viz.line(
-            X=np.array([epoch]), Y=np.array([train_loss]),
-            name=net_type + '_TL',
-            opts=dict(xlabel='Epochs', ylabel='Loss',
-                      title='Loss Vs Epoch - ' + plot.plot_name)
-        )
-        plot.viz.line(X=np.array([epoch]), Y=np.array([test_loss]),
-                      win=win_loss,
-                      name=net_type + '_VL', update='append')
-    else:
-        plot.viz.line(X=np.array([epoch]), Y=np.array([train_loss]),
-                      name=net_type + '_TL', win=win_loss,
-                      update='append')
-        plot.viz.line(X=np.array([epoch]), Y=np.array([test_loss]),
-                      name=net_type + '_VL', win=win_loss,
-                      update='append')
+        if win_loss is None:
+            win_loss = plot.viz.line(
+                X=np.array([epoch]), Y=np.array([train_loss]),
+                name=net_type + '_TL',
+                opts=dict(xlabel='Epochs', ylabel='Loss',
+                          title='Loss Vs Epoch - ' + plot.plot_name)
+            )
+            plot.viz.line(X=np.array([epoch]), Y=np.array([test_loss]),
+                          win=win_loss,
+                          name=net_type + '_VL', update='append')
+        else:
+            plot.viz.line(X=np.array([epoch]), Y=np.array([train_loss]),
+                          name=net_type + '_TL', win=win_loss,
+                          update='append')
+            plot.viz.line(X=np.array([epoch]), Y=np.array([test_loss]),
+                          name=net_type + '_VL', win=win_loss,
+                          update='append')
+    except IOError:
+        print 'io error'
 
     return win_accuracy, win_loss
 
 
-def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
+def start_traning(net, net_type, optimizer, scheduler, plot=None,
+                  win_accuracy=None, win_loss=None):
     log = {'model_type': net_type, 'epoch': [],
            'train_accuracy': [], 'test_accuracy': [],
            'train_loss': [], 'test_loss': [],
@@ -217,7 +242,7 @@ def start_traning(net, net_type, plot=None, win_accuracy=None, win_loss=None):
            'top_test_data': {'epoch': 0, 'accuracy': 0.0, 'loss': 0.0}}
 
     for epoch in range(1, args.epochs + 1):
-        train_accuracy, train_loss = train(net, epoch)
+        train_accuracy, train_loss = train(net, optimizer, scheduler, epoch)
         test_accuracy, test_loss = test(net)
 
         log['epoch'].append(epoch)
@@ -255,7 +280,7 @@ if __name__ == "__main__":
 
     if args.plot_name is not None:
         visdom_live_plot = PlotLearning(
-            './plots/cifar/', 10, plot_name=args.plot_name)
+            './plots/cifar/', 10, plot_name=args.plot_name, env_name=args.env_name)
     else:
         visdom_live_plot = None
 
@@ -263,37 +288,17 @@ if __name__ == "__main__":
     colors.append('orange')
     trace_names.extend(['Teacher Train', 'Teacher Test'])
     teacher_model = ConvNet(net_dataset=CIFAR10)
+    # teacher_model.apply(weights_init)
     teacher_model.cuda()
+    optimizer = optim.SGD(teacher_model.parameters(), lr=args.lr,
+                          momentum=args.momentum, weight_decay=0.001) # 0.0001 used in resnet paper for cifar10
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
+    scheduler = None
+
     print teacher_model
     log_base, win_accuracy, win_loss = start_traning(
-        teacher_model, 'Teacher', visdom_live_plot)
-    # logs.append(log_base)
-
-    # wider model training from scratch
-    # print("\n\n > Wider Network training (Wider Random Init)... ")
-    # colors.append('green')
-    # trace_names.extend(['Wider Random Train', 'Wider Random Test'])
-    # wider_random_init_model = ConvNet(net_dataset=CIFAR10)
-    # wider_random_init_model.define_wider(widening_factor=2)
-    # wider_random_init_model.cuda()
-    # print wider_random_init_model
-    # log_random_init, win_accuracy, win_loss = start_traning(
-    #     wider_random_init_model, 'WideRandInit',
-    #     visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_random_init)
-
-    # wider student training from NetMorph
-    print("\n\n > Wider Student training (NetMorph)... ")
-    colors.append('black')
-    trace_names.extend(['Wider NetMorph Train', 'Wider NetMorph Test'])
-    netmorph_model_wider = ConvNet(net_dataset=CIFAR10)
-    netmorph_model_wider.cuda()
-    netmorph_model_wider = copy.deepcopy(teacher_model)
-    netmorph_model_wider.wider('netmorph', widening_factor=2)
-    print netmorph_model_wider
-    log_netmorph, win_accuracy, win_loss = start_traning(
-        netmorph_model_wider, 'WideNetMorph', visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_netmorph)
+        teacher_model, 'Teacher', optimizer, scheduler, visdom_live_plot)
+    logs.append(log_base)
 
     # wider student training from Net2Net
     print("\n\n > Wider Student training (Net2Net)... ")
@@ -301,10 +306,48 @@ if __name__ == "__main__":
     trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
     n2n_model_wider = copy.deepcopy(teacher_model)
     n2n_model_wider.wider('net2net', widening_factor=2)
+    optimizer = optim.SGD(n2n_model_wider.parameters(), lr=args.lr,
+                          momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
     print n2n_model_wider
     log_net2net, win_accuracy, win_loss = start_traning(
-        n2n_model_wider, 'WideNet2Net', visdom_live_plot, win_accuracy, win_loss)
+        n2n_model_wider, 'WideNet2Net', optimizer, scheduler,
+        visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_net2net)
+
+    # wider model training from scratch
+    print("\n\n > Wider Network training (Wider Random Init)... ")
+    colors.append('green')
+    trace_names.extend(['Wider Random Train', 'Wider Random Test'])
+    wider_random_init_model = ConvNet(net_dataset=CIFAR10)
+    wider_random_init_model.define_wider(widening_factor=2)
+    # wider_random_init_model.apply(weights_init)
+    wider_random_init_model.cuda()
+    optimizer = optim.SGD(wider_random_init_model.parameters(), lr=args.lr,
+                          momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
+    print wider_random_init_model
+    log_random_init, win_accuracy, win_loss = start_traning(
+        wider_random_init_model, 'WideRandInit', optimizer, scheduler,
+        visdom_live_plot, win_accuracy, win_loss)
+    logs.append(log_random_init)
+
+    # wider student training from NetMorph
+    # print("\n\n > Wider Student training (NetMorph)... ")
+    # colors.append('red')
+    # trace_names.extend(['Wider NetMorph Train', 'Wider NetMorph Test'])
+    # netmorph_model_wider = ConvNet(net_dataset=CIFAR10)
+    # netmorph_model_wider.cuda()
+    # netmorph_model_wider = copy.deepcopy(teacher_model)
+    # netmorph_model_wider.wider('netmorph', widening_factor=2)
+    # optimizer = optim.SGD(netmorph_model_wider.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.5)
+    # print netmorph_model_wider
+    # log_netmorph, win_accuracy, win_loss = start_traning(
+    #     netmorph_model_wider, 'WideNetMorph', optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_netmorph)
 
     # # # deeper model training from scratch
     # print("\n\n > Deeper Network training (Random Init)... ")
@@ -312,53 +355,68 @@ if __name__ == "__main__":
     # trace_names.extend(['Deeper Random Train', 'Deeper Random Test'])
     # deeper_random_init_model = ConvNet(net_dataset=CIFAR10)
     # deeper_random_init_model.define_deeper(deepening_factor=2)
+    # deeper_random_init_model.apply(weights_init)
     # deeper_random_init_model.cuda()
+    # optimizer = optim.SGD(deeper_random_init_model.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print deeper_random_init_model
     # log_random_init, win_accuracy, win_loss = start_traning(
-    #     deeper_random_init_model, 'RandInit',
+    #     deeper_random_init_model, 'RandInit', optimizer, scheduler,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
 
-    # # # Deeper student training from Net2Net
+    # # # # Deeper student training from Net2Net
     # print("\n\n > Deeper Student training (Net2Net)... ")
     # colors.append('blue')
     # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
     # n2n_model_deeper = copy.deepcopy(teacher_model)
     # n2n_model_deeper.deeper('net2net')
     # n2n_model_deeper.cuda()
+    # optimizer = optim.SGD(n2n_model_deeper.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print n2n_model_deeper
     # log_net2net, win_accuracy, win_loss = start_traning(
-    #     n2n_model_deeper, 'NetTransform', visdom_live_plot,
-    #     win_accuracy, win_loss)
+    #     n2n_model_deeper, 'NetTransform', optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_net2net)
 
     # Deeper student training from NetMorph
     # print("\n\n > Deeper Student training (NetMorph)... ")
-    # colors.append('black')
+    # colors.append('red')
     # trace_names.extend(['Deeper NetMorph Train', 'Deeper NetMorph Test'])
     # netmorph_model_deeper = copy.deepcopy(teacher_model)
     # netmorph_model_deeper.deeper('net2morph')
     # netmorph_model_deeper.cuda()
+    # optimizer = optim.SGD(netmorph_model_deeper.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print netmorph_model_deeper
     # log_netmorph, win_accuracy, win_loss = start_traning(
-    #     netmorph_model_deeper, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    #     netmorph_model_deeper, 'NetTransform', optimizer, scheduler, visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_netmorph)
 
-    # # wider deeper model training from scratch
+    # wider deeper model training from scratch
     # print("\n\n > Wider Deeper Network training (Random Init)... ")
     # colors.append('green')
     # trace_names.extend(['Wider Deeper Random Train', 'Wider Deeper Random Test'])
     # deeper_wider_random_init_model = ConvNet(net_dataset=CIFAR10)
     # deeper_wider_random_init_model.define_wider(widening_factor=2)
     # deeper_wider_random_init_model.define_deeper(deepening_factor=2)
+    # deeper_wider_random_init_model.apply(weights_init)
     # deeper_wider_random_init_model.cuda()
+    # optimizer = optim.SGD(deeper_wider_random_init_model.parameters(),
+    #                       lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print deeper_wider_random_init_model
     # log_random_init, win_accuracy, win_loss = start_traning(
-    #     deeper_wider_random_init_model, 'RandInit',
+    #     deeper_wider_random_init_model, 'RandInit', optimizer, scheduler,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
 
-    # # Wider Deeper student training from Net2Net
+    # Wider Deeper student training from Net2Net
     # print("\n\n > Wider Deeper Student training (Net2Net)... ")
     # colors.append('blue')
     # trace_names.extend(['Wider Deeper Net2Net Train', 'Wider Deeper Net2Net Test'])
@@ -366,22 +424,28 @@ if __name__ == "__main__":
     # n2n_model_deeper_wider.wider('net2net', widening_factor=2)
     # n2n_model_deeper_wider.deeper('net2net')
     # n2n_model_deeper_wider.cuda()
+    # optimizer = optim.SGD(n2n_model_deeper_wider.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print n2n_model_deeper_wider
     # log_net2net, win_accuracy, win_loss = start_traning(
-    #     n2n_model_deeper_wider, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    #     n2n_model_deeper_wider, 'WideDeepN2N', optimizer, scheduler, visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_net2net)
 
     # # WiderDeeper student training from NetMorph
     # print("\n\n > Wider Deeper Student training (NetMorph)... ")
-    # colors.append('black')
+    # colors.append('red')
     # trace_names.extend(['Wider Deeper NetMorph Train', 'Wider Deeper NetMorph Test'])
     # netmorph_model_deeper_wider = copy.deepcopy(teacher_model)
     # netmorph_model_deeper_wider.deeper('net2morph', widening_factor=2)
     # netmorph_model_deeper_wider.deeper('net2morph')
     # netmorph_model_deeper_wider.cuda()
+    # optimizer = optim.SGD(netmorph_model_deeper_wider.parameters(), lr=args.lr,
+    #                       momentum=args.momentum, weight_decay=0.001)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print netmorph_model_deeper_wider
     # log_netmorph, win_accuracy, win_loss = start_traning(
-    #     netmorph_model_deeper_wider, 'NetTransform', visdom_live_plot, win_accuracy, win_loss)
+    #     netmorph_model_deeper_wider, 'NetTransform', optimizer, scheduler, visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_netmorph)
 
     for log in logs:
@@ -401,5 +465,5 @@ if __name__ == "__main__":
 
     if args.plot_name is not None:
         visdom_plot_final = PlotLearning(
-            './plots/cifar/', 10, plot_name=args.plot_name)
-        visdom_plot_final.plot_logs(logs, args.plot_name, trace_names, colors)
+            './plots/cifar/', 10, plot_name=args.plot_name, env_name=args.env_name)
+        visdom_plot_final.plot_logs(logs, trace_names, colors)
