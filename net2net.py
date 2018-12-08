@@ -1,6 +1,7 @@
 import torch as th
 import torch.nn as nn
 import numpy as np
+import random
 
 NOISE_RATIO = 1e-5
 ERROR_TOLERANCE = 1e-3
@@ -121,12 +122,6 @@ def wider(layer1, layer2, new_width, bnorm=None):
                 nweight = bnorm.weight.data.clone().resize_(new_width)
                 nbias = bnorm.bias.data.clone().resize_(new_width)
 
-            # nrunning_var.narrow(0, 0, old_width).copy_(bnorm.running_var)
-            # nrunning_mean.narrow(0, 0, old_width).copy_(bnorm.running_mean)
-            # if bnorm.affine:
-            #     nweight.narrow(0, 0, old_width).copy_(bnorm.weight.data)
-            #     nbias.narrow(0, 0, old_width).copy_(bnorm.bias.data)
-
         if isinstance(layer1, nn.Conv2d):
             new_current_layer = nn.Conv2d(
                 out_channels=new_width, in_channels=layer1.in_channels,
@@ -136,8 +131,10 @@ def wider(layer1, layer2, new_width, bnorm=None):
                 in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
                 out_features=layer2.out_features)
 
-        rand_ids = th.randint(low=0, high=w1.shape[0],
-                              size=((new_width - w1.shape[0]),))
+        # rand_ids = th.randint(low=0, high=w1.shape[0],
+        #                       size=((new_width - w1.shape[0]),))
+
+        rand_ids = th.tensor(random.sample(range(w1.shape[0]), new_width - w1.shape[0]))
         replication_factor = np.bincount(rand_ids)
 
         for i in range(rand_ids.numel()):
@@ -193,9 +190,6 @@ def wider(layer1, layer2, new_width, bnorm=None):
         # Set the bias for new next layer as previous bias for next layer
         new_next_layer.bias.data = b2
         layer2 = new_next_layer
-
-        # layer1.weight.data = nw1
-        # layer1.bias.data = nb1
 
         if bnorm is not None:
             bnorm.num_features = new_width

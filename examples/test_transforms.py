@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import sys
 import torch as th
+import os
 import torch.nn as nn
 import torch.nn.init as init
 import torch.optim as optim
@@ -15,6 +16,7 @@ sys.path.append('../')
 from convnet import ConvNet, CIFAR10
 
 DATA_DIRECTORY = './data'
+MODEL_PATH = './best_model'
 DISPLAY_INTERVAL = 200
 
 # Training settings
@@ -60,6 +62,8 @@ train_transform = transforms.Compose([
                          std=(0.2023, 0.1994, 0.2010))])
 
 test_transform = transforms.Compose([
+    # transforms.RandomCrop(32, padding=4),
+    # transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
                          std=(0.2023, 0.1994, 0.2010))])
@@ -84,17 +88,16 @@ test_loader = th.utils.data.DataLoader(
     test_set, batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
-def weights_init(m):
-    if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-        # init.kaiming_uniform_(m.weight.data, nonlinearity='relu')
-        init.xavier_normal_(m.weight.data, gain=init.calculate_gain('relu'))
-        m.bias.data.fill_(0.0)
+# def weights_init(m):
+#     if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
+#         # init.kaiming_uniform_(m.weight.data, nonlinearity='relu')
+#         init.xavier_normal_(m.weight.data, gain=init.calculate_gain('relu'))
+#         m.bias.data.fill_(0.0)
 
 
-def train(net, optimizer, scheduler, epoch):
+def train(net, optimizer, epoch):
     # Set the net to train mode. Only applies for certain modules when
     # BatchNorm or Drop outs are used in the net.
-    # scheduler.step()
     net.train(mode=True)
 
     running_loss = 0.0
@@ -233,16 +236,17 @@ def plot_live_data(plot, win_accuracy, win_loss, net_type, epoch,
     return win_accuracy, win_loss
 
 
-def start_traning(net, net_type, optimizer, scheduler, plot=None,
-                  win_accuracy=None, win_loss=None):
+def start_training(net, net_type, optimizer, plot=None,
+                   win_accuracy=None, win_loss=None):
     log = {'model_type': net_type, 'epoch': [],
            'train_accuracy': [], 'test_accuracy': [],
            'train_loss': [], 'test_loss': [],
            'top_train_data': {'epoch': 0, 'accuracy': 0.0, 'loss': 0.0},
            'top_test_data': {'epoch': 0, 'accuracy': 0.0, 'loss': 0.0}}
+    best_model_dict = {}
 
     for epoch in range(1, args.epochs + 1):
-        train_accuracy, train_loss = train(net, optimizer, scheduler, epoch)
+        train_accuracy, train_loss = train(net, optimizer, epoch)
         test_accuracy, test_loss = test(net)
 
         log['epoch'].append(epoch)
@@ -256,10 +260,15 @@ def start_traning(net, net_type, optimizer, scheduler, plot=None,
             log['top_test_data']['accuracy'] = test_accuracy
             log['top_test_data']['loss'] = test_loss
 
-        if train_accuracy > log['top_train_data']['accuracy']:
+        # if train_accuracy > log['top_train_data']['accuracy']:
             log['top_train_data']['epoch'] = epoch
             log['top_train_data']['accuracy'] = train_accuracy
             log['top_train_data']['loss'] = train_loss
+
+            if net_type == 'Teacher':
+                best_model_dict = th.save(
+                    net.state_dict(),
+                    os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt'))
 
         live_data ={'epoch': epoch, 'train_accuracy': train_accuracy,
                     'test_accuracy': test_accuracy, 'train_loss': train_loss,
@@ -270,7 +279,7 @@ def start_traning(net, net_type, optimizer, scheduler, plot=None,
             win_accuracy, win_loss = plot_live_data(
                 plot, win_accuracy, win_loss, net_type, **live_data)
 
-    return log, win_accuracy, win_loss
+    return log, win_accuracy, win_loss, best_model_dict
 
 
 if __name__ == "__main__":
@@ -292,12 +301,10 @@ if __name__ == "__main__":
     teacher_model.cuda()
     optimizer = optim.SGD(teacher_model.parameters(), lr=args.lr,
                           momentum=args.momentum, weight_decay=0.001) # 0.0001 used in resnet paper for cifar10
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
-    scheduler = None
 
     print teacher_model
-    log_base, win_accuracy, win_loss = start_traning(
-        teacher_model, 'Teacher', optimizer, scheduler, visdom_live_plot)
+    log_base, win_accuracy, win_loss, best_model_dict = start_training(
+        teacher_model, 'Teacher', optimizer, visdom_live_plot)
     logs.append(log_base)
 
     # wider student training from Net2Net
@@ -305,13 +312,14 @@ if __name__ == "__main__":
     colors.append('blue')
     trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
     n2n_model_wider = copy.deepcopy(teacher_model)
+    import os
+    n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
     n2n_model_wider.wider('net2net', widening_factor=2)
     optimizer = optim.SGD(n2n_model_wider.parameters(), lr=args.lr,
                           momentum=args.momentum, weight_decay=0.001)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
     print n2n_model_wider
-    log_net2net, win_accuracy, win_loss = start_traning(
-        n2n_model_wider, 'WideNet2Net', optimizer, scheduler,
+    log_net2net, win_accuracy, win_loss, _ = start_training(
+        n2n_model_wider, 'WideNet2Net', optimizer,
         visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_net2net)
 
@@ -325,10 +333,9 @@ if __name__ == "__main__":
     wider_random_init_model.cuda()
     optimizer = optim.SGD(wider_random_init_model.parameters(), lr=args.lr,
                           momentum=args.momentum, weight_decay=0.001)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
     print wider_random_init_model
-    log_random_init, win_accuracy, win_loss = start_traning(
-        wider_random_init_model, 'WideRandInit', optimizer, scheduler,
+    log_random_init, win_accuracy, win_loss, _ = start_training(
+        wider_random_init_model, 'WideRandInit', optimizer,
         visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_random_init)
 
@@ -355,17 +362,16 @@ if __name__ == "__main__":
     # trace_names.extend(['Deeper Random Train', 'Deeper Random Test'])
     # deeper_random_init_model = ConvNet(net_dataset=CIFAR10)
     # deeper_random_init_model.define_deeper(deepening_factor=2)
-    # deeper_random_init_model.apply(weights_init)
+    # # deeper_random_init_model.apply(weights_init)
     # deeper_random_init_model.cuda()
     # optimizer = optim.SGD(deeper_random_init_model.parameters(), lr=args.lr,
     #                       momentum=args.momentum, weight_decay=0.001)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print deeper_random_init_model
-    # log_random_init, win_accuracy, win_loss = start_traning(
-    #     deeper_random_init_model, 'RandInit', optimizer, scheduler,
+    # log_random_init, win_accuracy, win_loss = start_training(
+    #     deeper_random_init_model, 'RandInit', optimizer,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
-
+    #
     # # # # Deeper student training from Net2Net
     # print("\n\n > Deeper Student training (Net2Net)... ")
     # colors.append('blue')
@@ -375,10 +381,9 @@ if __name__ == "__main__":
     # n2n_model_deeper.cuda()
     # optimizer = optim.SGD(n2n_model_deeper.parameters(), lr=args.lr,
     #                       momentum=args.momentum, weight_decay=0.001)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
     # print n2n_model_deeper
-    # log_net2net, win_accuracy, win_loss = start_traning(
-    #     n2n_model_deeper, 'NetTransform', optimizer, scheduler,
+    # log_net2net, win_accuracy, win_loss = start_training(
+    #     n2n_model_deeper, 'NetTransform', optimizer,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_net2net)
 
