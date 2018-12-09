@@ -83,6 +83,7 @@ def verify_weights(teacher_w1, teacher_b1, teacher_w2,
 
     err = np.abs(np.sum(ori2 - new2))
 
+    print 'the err val is:' + str(err)
     assert err < ERROR_TOLERANCE, 'Verification failed: [ERROR] {}'.format(err)
 
 
@@ -98,8 +99,8 @@ def wider(layer1, layer2, new_width, bnorm=None):
                                           or isinstance(layer2, nn.Linear)):
 
         # Convert Linear layers to Conv if linear layer follows target layer
-        if isinstance(layer1, nn.Conv2d)  and isinstance(layer2, nn.Linear):
-            assert w2.size(1) % w1.size(0) == 0, "Linear units need to be multiple"
+        if isinstance(layer1, nn.Conv2d) and isinstance(layer2, nn.Linear):
+            assert w2.size(1) % w1.size(0) == 0, 'Linear units need to be multiple'
             if w1.dim() == 4:
                 kernel_size = int(np.sqrt(w2.size(1) // w1.size(0)))
                 w2 = w2.view(
@@ -130,9 +131,6 @@ def wider(layer1, layer2, new_width, bnorm=None):
             new_current_layer = nn.Linear(
                 in_features=layer1.out_channels * layer1.kernel_size[0] * layer1.kernel_size[1],
                 out_features=layer2.out_features)
-
-        # rand_ids = th.randint(low=0, high=w1.shape[0],
-        #                       size=((new_width - w1.shape[0]),))
 
         rand_ids = th.tensor(random.sample(range(w1.shape[0]), new_width - w1.shape[0]))
         replication_factor = np.bincount(rand_ids)

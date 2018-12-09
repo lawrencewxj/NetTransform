@@ -11,7 +11,6 @@ import json
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pylab as plt
-import matplotlib.pyplot as pyplt
 import numpy as np
 import os
 import sys
@@ -280,7 +279,8 @@ class PlotLearning(object):
             accuracy_traces.append(trace2)
             trace_names_index += 1
 
-        with open(os.path.join('./logs', 'accuracy_' + self.plot_name +'.json'), 'w') as accuracy_file:
+        with open(os.path.join(
+                './logs', 'accuracy_' + self.plot_name +'.json'), 'w') as accuracy_file:
             json.dump(accuracy_traces, accuracy_file)
 
         layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
@@ -314,9 +314,6 @@ class PlotLearning(object):
         self.viz._send({'data': loss_traces,
                         'layout': layout, 'win': 'Loss_' + self.plot_name})
 
-
-
-
     def plot_live_logs(self, accuracy_traces, loss_traces):
 
         try:
@@ -333,3 +330,23 @@ class PlotLearning(object):
         except ConnectionError:
             print('Connection error...')
             time.sleep(5)
+
+    def plot_saved_data(self, plot_data):
+        layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
+                      xaxis={'title': 'Epochs'}, yaxis={'title': 'Accuracy'})
+        self.viz._send({'data': plot_data,
+                        'layout': layout, 'win': 'Accuracy_check'})
+
+
+if __name__ == '__main__':
+
+    filename = './logs/accuracy_run10.json'
+
+    visdom_plot_final = PlotLearning(
+        './plots/cifar/', 10, plot_name='run10', env_name='check_plot')
+
+    with open(filename, 'r') as read_file:
+        json_data = json.load(read_file)
+
+    visdom_plot_final.plot_saved_data(plot_data=json_data)
+

@@ -21,13 +21,13 @@ DISPLAY_INTERVAL = 200
 
 # Training settings
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
-parser.add_argument('--batch-size', type=int, default=64, metavar='N',
+parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
 parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.01)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.9)')
@@ -62,20 +62,9 @@ train_transform = transforms.Compose([
                          std=(0.2023, 0.1994, 0.2010))])
 
 test_transform = transforms.Compose([
-    # transforms.RandomCrop(32, padding=4),
-    # transforms.RandomHorizontalFlip(),
     transforms.ToTensor(),
     transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
                          std=(0.2023, 0.1994, 0.2010))])
-
-# train_transform = transforms.Compose(
-#              [
-#               transforms.ToTensor(),
-#               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-#
-# test_transform = transforms.Compose(
-#              [transforms.ToTensor(),
-#               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
 train_set = datasets.CIFAR10(
     DATA_DIRECTORY, train=True, download=True, transform=train_transform)
@@ -95,9 +84,10 @@ test_loader = th.utils.data.DataLoader(
 #         m.bias.data.fill_(0.0)
 
 
-def train(net, optimizer, epoch):
+def train(net, optimizer, scheduler, epoch):
     # Set the net to train mode. Only applies for certain modules when
     # BatchNorm or Drop outs are used in the net.
+    scheduler.step()
     net.train(mode=True)
 
     running_loss = 0.0
@@ -236,7 +226,7 @@ def plot_live_data(plot, win_accuracy, win_loss, net_type, epoch,
     return win_accuracy, win_loss
 
 
-def start_training(net, net_type, optimizer, plot=None,
+def start_training(net, net_type, optimizer, scheduler, plot=None,
                    win_accuracy=None, win_loss=None):
     log = {'model_type': net_type, 'epoch': [],
            'train_accuracy': [], 'test_accuracy': [],
@@ -246,7 +236,7 @@ def start_training(net, net_type, optimizer, plot=None,
     best_model_dict = {}
 
     for epoch in range(1, args.epochs + 1):
-        train_accuracy, train_loss = train(net, optimizer, epoch)
+        train_accuracy, train_loss = train(net, optimizer, scheduler, epoch)
         test_accuracy, test_loss = test(net)
 
         log['epoch'].append(epoch)
@@ -300,11 +290,12 @@ if __name__ == "__main__":
     # teacher_model.apply(weights_init)
     teacher_model.cuda()
     optimizer = optim.SGD(teacher_model.parameters(), lr=args.lr,
-                          momentum=args.momentum, weight_decay=0.001) # 0.0001 used in resnet paper for cifar10
+                          momentum=args.momentum, weight_decay=0.0001) # 0.0001 used in resnet paper for cifar10
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
 
     print teacher_model
     log_base, win_accuracy, win_loss, best_model_dict = start_training(
-        teacher_model, 'Teacher', optimizer, visdom_live_plot)
+        teacher_model, 'Teacher', optimizer, scheduler, visdom_live_plot)
     logs.append(log_base)
 
     # wider student training from Net2Net
@@ -316,10 +307,11 @@ if __name__ == "__main__":
     n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
     n2n_model_wider.wider('net2net', widening_factor=2)
     optimizer = optim.SGD(n2n_model_wider.parameters(), lr=args.lr,
-                          momentum=args.momentum, weight_decay=0.001)
+                          momentum=args.momentum, weight_decay=0.0001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
     print n2n_model_wider
     log_net2net, win_accuracy, win_loss, _ = start_training(
-        n2n_model_wider, 'WideNet2Net', optimizer,
+        n2n_model_wider, 'WideNet2Net', optimizer, scheduler,
         visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_net2net)
 
@@ -332,10 +324,11 @@ if __name__ == "__main__":
     # wider_random_init_model.apply(weights_init)
     wider_random_init_model.cuda()
     optimizer = optim.SGD(wider_random_init_model.parameters(), lr=args.lr,
-                          momentum=args.momentum, weight_decay=0.001)
+                          momentum=args.momentum, weight_decay=0.0001)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
     print wider_random_init_model
     log_random_init, win_accuracy, win_loss, _ = start_training(
-        wider_random_init_model, 'WideRandInit', optimizer,
+        wider_random_init_model, 'WideRandInit', optimizer, scheduler,
         visdom_live_plot, win_accuracy, win_loss)
     logs.append(log_random_init)
 
