@@ -465,3 +465,4 @@ if __name__ == "__main__":
         visdom_plot_final = PlotLearning(
             './plots/cifar/', 10, plot_name=args.plot_name, env_name=args.env_name)
         visdom_plot_final.plot_logs(logs, trace_names, colors)
+
