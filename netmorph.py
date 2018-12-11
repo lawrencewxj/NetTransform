@@ -1,18 +1,12 @@
 import torch as th
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
+import sys
 
-NOISE_RATIO = 1e-5
+sys.path.append('../')
+from utils import add_noise
+
 ERROR_TOLERANCE = 1e-2
-
-
-def add_noise(weights, other_weights):
-    noise_range = NOISE_RATIO * np.ptp(other_weights.flatten())
-    noise = th.Tensor(weights.shape).uniform_(
-        -noise_range / 2.0, noise_range / 2.0).cuda()
-
-    return th.add(noise, weights)
 
 
 def _test_wider_operation():

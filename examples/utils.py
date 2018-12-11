@@ -15,7 +15,7 @@ import numpy as np
 import os
 import sys
 import time
-import torch
+import torch as th
 import torch.nn as nn
 import torch.nn.init as init
 
@@ -31,6 +31,17 @@ label_names = [
     'ship',
     'truck'
 ]
+
+NOISE_RATIO = 1e-5
+
+
+def add_noise(weights, other_weights):
+    noise_range = NOISE_RATIO * np.ptp(other_weights.flatten())
+    noise = th.Tensor(weights.shape).uniform_(
+        -noise_range / 2.0, noise_range / 2.0).cuda()
+
+    return th.add(noise, weights)
+
 
 def plot_images(images, cls_true, cls_pred=None):
     """
@@ -57,7 +68,7 @@ def plot_images(images, cls_true, cls_pred=None):
 
     plt.show()
 
-# TODO: when executed from bash, image not showing
+
 def show_sample_image():
     pass
 
@@ -75,19 +86,21 @@ def show_sample_image():
     # # print labels
     # print(' '.join('%5s' % CIFAR10.CLASSES[labels[j]] for j in range(4)))
 
+
 def get_mean_and_std(dataset):
     '''Compute the mean and std value of dataset.'''
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
-    mean = torch.zeros(3)
-    std = torch.zeros(3)
+    dataloader = th.utils.data.DataLoader(dataset, batch_size=1, shuffle=True, num_workers=2)
+    mean = th.zeros(3)
+    std = th.zeros(3)
     print('==> Computing mean and std..')
     for inputs, targets in dataloader:
         for i in range(3):
-            mean[i] += inputs[:,i,:,:].mean()
-            std[i] += inputs[:,i,:,:].std()
+            mean[i] += inputs[:, i, :, :].mean()
+            std[i] += inputs[:, i, :, :].std()
     mean.div_(len(dataset))
     std.div_(len(dataset))
     return mean, std
+
 
 def init_params(net):
     '''Init layer parameters.'''
@@ -187,26 +200,6 @@ def format_time(seconds):
         f = '0ms'
     return f
 
-class NLL_loss_instance(torch.nn.NLLLoss):
-
-    def __init__(self, ratio):
-        super(NLL_loss_instance, self).__init__(None, True)
-        self.ratio = ratio
-
-    def forward(self, x, y, ratio=None):
-        if ratio is not None:
-            self.ratio = ratio
-        num_inst = x.size(0)
-        num_hns = int(self.ratio * num_inst)
-        x_ = x.clone()
-        for idx, label in enumerate(y.data):
-            x_.data[idx, label] = 0.0
-        loss_incs = -x_.sum(1)
-        _, idxs = loss_incs.topk(num_hns)
-        x_hn = x.index_select(0, idxs)
-        y_hn = y.index_select(0, idxs)
-        return torch.nn.functional.nll_loss(x_hn, y_hn)
-
 
 class PlotLearning(object):
 
@@ -222,6 +215,7 @@ class PlotLearning(object):
         self.init_loss = -np.log(1.0 / num_classes)
         self.viz = Visdom(port=self.DEFAULT_PORT, server=self.DEFAULT_HOSTNAME, env = env_name)
         self.plot_name = plot_name
+        self.env_name = env_name
 
     def plot(self, logs):
         self.accuracy.append(logs.get('acc'))
@@ -280,7 +274,8 @@ class PlotLearning(object):
             trace_names_index += 1
 
         with open(os.path.join(
-                './logs', 'accuracy_' + self.plot_name +'.json'), 'w') as accuracy_file:
+                './logs',
+                'accuracy_' + self.env_name + '_' + self.plot_name +'.json'), 'w') as accuracy_file:
             json.dump(accuracy_traces, accuracy_file)
 
         layout = dict(title="Accuracy Vs Epoch - " + self.plot_name,
@@ -305,7 +300,7 @@ class PlotLearning(object):
             trace_names_index += 1
 
         with open(
-                os.path.join('./logs', 'loss_' + self.plot_name + '.json'),
+                os.path.join('./logs', 'loss_' + self.env_name + '_' + self.plot_name + '.json'),
                 'w') as loss_file:
             json.dump(loss_traces, loss_file)
 
