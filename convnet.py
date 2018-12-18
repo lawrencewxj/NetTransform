@@ -161,7 +161,7 @@ class ConvNet(nn.Module):
         elif operation == 'net2net':
             deeper = net2net.deeper
         elif operation == 'net2net_original':
-            deeper = net2net_original.deeper()
+            deeper = net2net_original.deeper
 
         self.conv1 = deeper(self.conv1, nn.ReLU, bnorm=True, prefix='l1')
         self.conv2 = deeper(self.conv2, nn.ReLU, bnorm=True, prefix='l2')

@@ -168,7 +168,7 @@ def wider(m1, m2, new_width, bnorm=None, out_size=None, noise=True,
 
 
 # TODO: Consider adding noise to new layer as wider operator.
-def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True, prefix=''):
+def deeper(m, nonlin, bnorm_flag=True, weight_norm=False, noise=True, prefix=''):
     """
     Deeper operator adding a new layer on topf of the given layer.
     Args:
@@ -203,55 +203,58 @@ def deeper(m, nonlin, bnorm_flag=False, weight_norm=True, noise=True, prefix='')
             m2.weight.data.zero_()
             c = m.kernel_size[0] // 2 + 1
 
-        elif m.weight.dim() == 5:
-            pad_hw = int((m.kernel_size[1] - 1) / 2)  # pad height and width
-            pad_d = int((m.kernel_size[0] - 1) / 2)  # pad depth
-            m2 = th.nn.Conv3d(m.out_channels,
-                              m.out_channels,
-                              kernel_size=m.kernel_size,
-                              padding=(pad_d, pad_hw, pad_hw))
-            c_wh = m.kernel_size[1] // 2 + 1
-            c_d = m.kernel_size[0] // 2 + 1
+        # elif m.weight.dim() == 5:
+        #     pad_hw = int((m.kernel_size[1] - 1) / 2)  # pad height and width
+        #     pad_d = int((m.kernel_size[0] - 1) / 2)  # pad depth
+        #     m2 = th.nn.Conv3d(m.out_channels,
+        #                       m.out_channels,
+        #                       kernel_size=m.kernel_size,
+        #                       padding=(pad_d, pad_hw, pad_hw))
+        #     c_wh = m.kernel_size[1] // 2 + 1
+        #     c_d = m.kernel_size[0] // 2 + 1
 
         restore = False
-        if m2.weight.dim() == 2:
-            restore = True
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
+        # if m2.weight.dim() == 2:
+        #     restore = True
+        #     m2.weight.data = m2.weight.data.view(m2.weight.size(0),
+        #                                          m2.in_channels,
+        #                                          m2.kernel_size[0],
+        #                                          m2.kernel_size[0])
 
-        if weight_norm:
-            for i in range(m.out_channels):
-                weight = m.weight.data
-                norm = weight.select(0, i).norm()
-                weight.div_(norm)
-                m.weight.data = weight
+        # if weight_norm:
+        #     for i in range(m.out_channels):
+        #         weight = m.weight.data
+        #         norm = weight.select(0, i).norm()
+        #         weight.div_(norm)
+        #         m.weight.data = weight
 
         for i in range(0, m.out_channels):
             if m.weight.dim() == 4:
                 m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c, 1).narrow(3, c, 1).fill_(1)
-            elif m.weight.dim() == 5:
-                m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
+            # elif m.weight.dim() == 5:
+            #     m2.weight.data.narrow(0, i, 1).narrow(1, i, 1).narrow(2, c_d, 1).narrow(3, c_wh, 1).narrow(4, c_wh, 1).fill_(1)
 
+        # print m2.weight.data.shape
+        # print m2.weight.data[2]
+        # exit()
         if noise:
             noise = np.random.normal(scale=5e-2 * m2.weight.data.std(),
                                      size=list(m2.weight.size()))
             m2.weight.data += th.FloatTensor(noise).type_as(m2.weight.data)
 
-        if restore:
-            m2.weight.data = m2.weight.data.view(m2.weight.size(0),
-                                                 m2.in_channels,
-                                                 m2.kernel_size[0],
-                                                 m2.kernel_size[0])
+        # if restore:
+        #     m2.weight.data = m2.weight.data.view(m2.weight.size(0),
+        #                                          m2.in_channels,
+        #                                          m2.kernel_size[0],
+        #                                          m2.kernel_size[0])
 
         m2.bias.data.zero_()
 
         if bnorm_flag:
             if m.weight.dim() == 4:
                 bnorm = th.nn.BatchNorm2d(m2.out_channels)
-            elif m.weight.dim() == 5:
-                bnorm = th.nn.BatchNorm3d(m2.out_channels)
+            # elif m.weight.dim() == 5:
+            #     bnorm = th.nn.BatchNorm3d(m2.out_channels)
             bnorm.weight.data.fill_(1)
             bnorm.bias.data.fill_(0)
             bnorm.running_mean.fill_(0)

@@ -28,7 +28,7 @@ parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
-                    help='learning rate (default: 0.01)')
+                    help='learning rate (default: 0.001)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.9)')
 parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -117,13 +117,13 @@ def train(net, optimizer, scheduler, epoch):
             print(
                 'Epoch: {} [{}/{} ({:.0f}%)]\tLoss (Batch Size:{}): {:.3f}'.format(
                 epoch, batch_idx * batch_size, num_train_images, 100. * batch_idx / len(train_loader),
-                DISPLAY_INTERVAL, loss.item()))
+                batch_size, loss.item()))
 
     train_loss = running_loss / num_train_images
     train_accuracy = 100. * num_correct_predictions / num_train_images
 
-    print('\nTraining Set: Avg Loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
-        train_loss, num_correct_predictions, num_train_images, train_accuracy))
+    # print('\nTraining Set: Avg Loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
+    #     train_loss, num_correct_predictions, num_train_images, train_accuracy))
 
     return train_accuracy, train_loss
 
@@ -151,8 +151,8 @@ def test(net, verbose=False):
 
     test_loss = running_loss / num_test_images
     test_accuracy = 100. * num_correct_predictions / num_test_images
-    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
-        test_loss, num_correct_predictions, num_test_images, test_accuracy))
+    # print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+    #     test_loss, num_correct_predictions, num_test_images, test_accuracy))
 
     if verbose:
         class_correct = list(0. for i in range(10))
@@ -233,6 +233,10 @@ def start_training(net, net_type, optimizer, scheduler, plot=None,
     for epoch in range(1, args.epochs + 1):
         train_accuracy, train_loss = train(net, optimizer, scheduler, epoch)
         test_accuracy, test_loss = test(net)
+        # scheduler.step(test_accuracy)
+
+        # print optimizer.state_dict()
+        # print scheduler.state_dict()
 
         log['epoch'].append(epoch)
         log['train_accuracy'].append(train_accuracy)
@@ -253,7 +257,8 @@ def start_training(net, net_type, optimizer, scheduler, plot=None,
             if net_type == 'Teacher':
                 th.save(
                     net.state_dict(),
-                    os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt'))
+                    os.path.join(MODEL_PATH,
+                                 '_' if args.plot_name is None else args.plot_name + '_bestmodel.pt'))
 
         live_data = {'epoch': epoch, 'train_accuracy': train_accuracy,
                      'test_accuracy': test_accuracy, 'train_loss': train_loss,
@@ -269,13 +274,14 @@ def start_training(net, net_type, optimizer, scheduler, plot=None,
 
 def get_optimizer(model):
     # wt decay = 0.0001 in resnet paper, 0.0005 used in wide-resnet for cifar10
-    return optim.SGD(
-        model.parameters(), lr=args.lr, momentum=args.momentum,
-        weight_decay=0.0005)
+    return optim.SGD(model.parameters(), lr=args.lr,
+                     momentum=args.momentum, weight_decay=0.0005)
 
 
 def get_scheduler(optimizer):
     return optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
+    # return optim.lr_scheduler.ReduceLROnPlateau(
+    #     optimizer, factor=0.5, mode='max', verbose=True, patience=15)
 
 
 def save_optimizer_scheduler(optimizer, scheduler, net_type):
@@ -284,7 +290,7 @@ def save_optimizer_scheduler(optimizer, scheduler, net_type):
     th.save(optim_scheduler,
             os.path.join(
                 MODEL_PATH,
-                net_type + '_' + args.plot_name + '_optim_scheduler.pt'))
+                net_type + '_' + '' if args.plot_name is None else args.plot_name + '_optim_scheduler.pt'))
 
 
 if __name__ == "__main__":
@@ -303,7 +309,6 @@ if __name__ == "__main__":
     colors.append('orange')
     trace_names.extend(['Teacher Train', 'Teacher Test'])
     teacher_model = ConvNet(net_dataset=CIFAR10)
-    # teacher_model.apply(weights_init)
     teacher_model.cuda()
     optimizer = get_optimizer(teacher_model)
     scheduler = get_scheduler(optimizer)
@@ -313,106 +318,109 @@ if __name__ == "__main__":
     logs.append(log_base)
     save_optimizer_scheduler(optimizer, scheduler, net_type)
 
-    # wider student training from Net2Net
-    print("\n\n > Wider Student training (Net2Net)... ")
-    net_type = 'WideNet2Net'
-    colors.append('blue')
-    trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
-    n2n_model_wider = copy.deepcopy(teacher_model)
-    n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
-    n2n_model_wider.wider('net2net', widening_factor=2)
-    optimizer = get_optimizer(n2n_model_wider)
-    scheduler = get_scheduler(optimizer)
-    print n2n_model_wider
-    log_net2net, win_accuracy, win_loss = start_training(
-        n2n_model_wider, net_type, optimizer, scheduler,
-        visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_net2net)
-    save_optimizer_scheduler(optimizer, scheduler, net_type)
+    # # wider student training from Net2Net
+    # print("\n\n > Wider Student training (Net2Net)... ")
+    # net_type = 'WideNet2Net'
+    # colors.append('blue')
+    # trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
+    # n2n_model_wider = copy.deepcopy(teacher_model)
+    # n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
+    # n2n_model_wider.wider('net2net', widening_factor=2)
+    # optimizer = get_optimizer(n2n_model_wider)
+    # scheduler = get_scheduler(optimizer)
+    # print n2n_model_wider
+    # log_net2net, win_accuracy, win_loss = start_training(
+    #     n2n_model_wider, net_type, optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_net2net)
+    # save_optimizer_scheduler(optimizer, scheduler, net_type)
 
-    # wider model training from scratch
-    print("\n\n > Wider Network training (Wider Random Init)... ")
-    net_type = 'WideRandInit'
-    colors.append('green')
-    trace_names.extend(['Wider Random Train', 'Wider Random Test'])
-    wider_random_init_model = ConvNet(net_dataset=CIFAR10)
-    wider_random_init_model.define_wider(widening_factor=2)
-    # wider_random_init_model.apply(weights_init)
-    wider_random_init_model.cuda()
-    optimizer = get_optimizer(wider_random_init_model)
-    scheduler = get_scheduler(optimizer)
-    print wider_random_init_model
-    log_random_init, win_accuracy, win_loss = start_training(
-        wider_random_init_model, net_type, optimizer, scheduler,
-        visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_random_init)
-    save_optimizer_scheduler(optimizer, scheduler, net_type)
+    # # wider model training from scratch
+    # print("\n\n > Wider Network training (Wider Random Init)... ")
+    # net_type = 'WideRandInit'
+    # colors.append('green')
+    # trace_names.extend(['Wider Random Train', 'Wider Random Test'])
+    # wider_random_init_model = ConvNet(net_dataset=CIFAR10)
+    # wider_random_init_model.define_wider(widening_factor=2)
+    # # wider_random_init_model.apply(weights_init)
+    # wider_random_init_model.cuda()
+    # optimizer = get_optimizer(wider_random_init_model)
+    # scheduler = get_scheduler(optimizer)
+    # print wider_random_init_model
+    # log_random_init, win_accuracy, win_loss = start_training(
+    #     wider_random_init_model, net_type, optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_random_init)
+    # save_optimizer_scheduler(optimizer, scheduler, net_type)
 
-    # wider student training from NetMorph
-    print("\n\n > Wider Student training (NetMorph)... ")
-    net_type = 'WideNetMorph'
-    colors.append('red')
-    trace_names.extend(['Wider NetMorph Train', 'Wider NetMorph Test'])
-    netmorph_model_wider = ConvNet(net_dataset=CIFAR10)
-    netmorph_model_wider.cuda()
-    netmorph_model_wider = copy.deepcopy(teacher_model)
-    netmorph_model_wider.load_state_dict(
-        th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
-    netmorph_model_wider.wider('netmorph', widening_factor=2)
-    optimizer = get_optimizer(netmorph_model_wider)
-    scheduler = get_scheduler(optimizer)
-    print netmorph_model_wider
-    log_netmorph, win_accuracy, win_loss = start_training(
-        netmorph_model_wider, net_type, optimizer, scheduler,
-        visdom_live_plot, win_accuracy, win_loss)
-    logs.append(log_netmorph)
-    save_optimizer_scheduler(optimizer, scheduler, net_type)
+    # # wider student training from NetMorph
+    # print("\n\n > Wider Student training (NetMorph)... ")
+    # net_type = 'WideNetMorph'
+    # colors.append('red')
+    # trace_names.extend(['Wider NetMorph Train', 'Wider NetMorph Test'])
+    # netmorph_model_wider = ConvNet(net_dataset=CIFAR10)
+    # netmorph_model_wider.cuda()
+    # netmorph_model_wider = copy.deepcopy(teacher_model)
+    # netmorph_model_wider.load_state_dict(
+    #     th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
+    # netmorph_model_wider.wider('netmorph', widening_factor=2)
+    # optimizer = get_optimizer(netmorph_model_wider)
+    # scheduler = get_scheduler(optimizer)
+    # print netmorph_model_wider
+    # log_netmorph, win_accuracy, win_loss = start_training(
+    #     netmorph_model_wider, net_type, optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_netmorph)
+    # save_optimizer_scheduler(optimizer, scheduler, net_type)
+
+    # # # Deeper student training from Net2Net
+    # print("\n\n > Deeper Student training (Net2Net)... ")
+    # net_type = 'DeeperNet2Net'
+    # colors.append('blue')
+    # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
+    # n2n_model_deeper = copy.deepcopy(teacher_model)
+    # # n2n_model_deeper.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
+    # n2n_model_deeper.deeper('net2net')
+    # n2n_model_deeper.cuda()
+    # optimizer = get_optimizer(n2n_model_deeper)
+    # scheduler = get_scheduler(optimizer)
+    # print n2n_model_deeper
+    # log_net2net, win_accuracy, win_loss = start_training(
+    #     n2n_model_deeper, net_type, optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_net2net)
 
     # # # deeper model training from scratch
     # print("\n\n > Deeper Network training (Random Init)... ")
+    # net_type = 'DeepRandomInit'
     # colors.append('green')
     # trace_names.extend(['Deeper Random Train', 'Deeper Random Test'])
     # deeper_random_init_model = ConvNet(net_dataset=CIFAR10)
     # deeper_random_init_model.define_deeper(deepening_factor=2)
-    # # deeper_random_init_model.apply(weights_init)
     # deeper_random_init_model.cuda()
-    # optimizer = optim.SGD(deeper_random_init_model.parameters(), lr=args.lr,
-    #                       momentum=args.momentum, weight_decay=0.001)
+    # optimizer = get_optimizer(deeper_random_init_model)
+    # scheduler = get_scheduler(optimizer)
     # print deeper_random_init_model
     # log_random_init, win_accuracy, win_loss = start_training(
-    #     deeper_random_init_model, 'RandInit', optimizer,
+    #     deeper_random_init_model, net_type, optimizer, scheduler,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
-    #
-    # # # # Deeper student training from Net2Net
-    # print("\n\n > Deeper Student training (Net2Net)... ")
-    # colors.append('blue')
-    # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
-    # n2n_model_deeper = copy.deepcopy(teacher_model)
-    # n2n_model_deeper.deeper('net2net')
-    # n2n_model_deeper.cuda()
-    # optimizer = optim.SGD(n2n_model_deeper.parameters(), lr=args.lr,
-    #                       momentum=args.momentum, weight_decay=0.001)
-    # print n2n_model_deeper
-    # log_net2net, win_accuracy, win_loss = start_training(
-    #     n2n_model_deeper, 'NetTransform', optimizer,
-    #     visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_net2net)
 
     # Deeper student training from NetMorph
-    # print("\n\n > Deeper Student training (NetMorph)... ")
-    # colors.append('red')
-    # trace_names.extend(['Deeper NetMorph Train', 'Deeper NetMorph Test'])
-    # netmorph_model_deeper = copy.deepcopy(teacher_model)
-    # netmorph_model_deeper.deeper('net2morph')
-    # netmorph_model_deeper.cuda()
-    # optimizer = optim.SGD(netmorph_model_deeper.parameters(), lr=args.lr,
-    #                       momentum=args.momentum, weight_decay=0.001)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=200, gamma=0.1)
-    # print netmorph_model_deeper
-    # log_netmorph, win_accuracy, win_loss = start_traning(
-    #     netmorph_model_deeper, 'NetTransform', optimizer, scheduler, visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_netmorph)
+    print("\n\n > Deeper Student training (NetMorph)... ")
+    net_type = 'DeepNetMorph'
+    colors.append('red')
+    trace_names.extend(['Deeper NetMorph Train', 'Deeper NetMorph Test'])
+    netmorph_model_deeper = copy.deepcopy(teacher_model)
+    netmorph_model_deeper.deeper('netmorph')
+    netmorph_model_deeper.cuda()
+    optimizer = get_optimizer(netmorph_model_deeper)
+    scheduler = get_scheduler(optimizer)
+    print netmorph_model_deeper
+    log_netmorph, win_accuracy, win_loss = start_training(
+        netmorph_model_deeper, net_type, optimizer, scheduler,
+        visdom_live_plot, win_accuracy, win_loss)
+    logs.append(log_netmorph)
 
     # wider deeper model training from scratch
     # print("\n\n > Wider Deeper Network training (Random Init)... ")

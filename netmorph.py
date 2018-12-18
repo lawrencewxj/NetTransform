@@ -206,16 +206,24 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
         if isinstance(layer, nn.Linear):
             pass
         else:
-            teacher_weight = layer.weight.data
+            teacher_weight = layer.weight.data.cpu().numpy()
             teacher_bias = layer.bias.data
-            k = teacher_weight.size(2)
+            k = teacher_weight.shape[2]
+
             k1 = k
             k2 = k
             kc = k1 + k2 - 1
-            pad = nn.ConstantPad2d((kc - k) / 2, 0)
-            new_weight = pad(teacher_weight)
-            f1 = th.rand(teacher_weight.size(0), teacher_weight.size(1), k1, k1)
-            f2 = th.rand(teacher_weight.size(0), teacher_weight.size(0), k2, k2)
+            # pad_zero = nn.ConstantPad2d((kc - k) / 2, 0)
+            # new_weight = pad_zero(teacher_weight)
+            # f1 = th.rand(teacher_weight.size(0), teacher_weight.size(1), k1, k1)
+            # f2 = th.rand(teacher_weight.size(0), teacher_weight.size(0), k2, k2)
+
+            f = np.zeros((teacher_weight.shape[2] * teacher_weight.shape[3] * teacher_weight.shape[0], teacher_weight.shape[0]))
+            for i in range(teacher_weight.shape[0]):
+                f[:, i] = teacher_weight[i, :, :, :].flatten()
+            f2 = np.random.normal(0, 1e-2, (3*3*16, 3*3*16))
+            f1 = np.linalg.lstsq(f2, f)[0]
+            exit()
 
             for i in xrange(50):
                 d = 0
@@ -230,6 +238,7 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
     seq_container.add_module(prefix + '_conv_new', new_layer)
 
     return seq_container
+
 
 if __name__ == '__main__':
 

@@ -248,7 +248,8 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
 
             new_layer_bias = th.zeros(new_num_channels)
             # Set new weight and bias for new convolutional layer
-            new_layer.weight.data = new_layer_weight
+            # new_layer.weight.data = new_layer_weight
+            new_layer.weight.data = add_noise(new_layer_weight.cuda(), layer.weight.data)
             new_layer.bias.data = new_layer_bias
 
             # Set noise as initial weight and bias for all parameter values for
