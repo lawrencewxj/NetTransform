@@ -4,7 +4,7 @@ import numpy as np
 import random
 import sys
 
-sys.path.append('../')
+sys.path.append('./')
 from utils import add_noise
 
 ERROR_TOLERANCE = 1e-3
@@ -12,19 +12,19 @@ ERROR_TOLERANCE = 1e-3
 
 def _test_wider_operation():
     ip_channel_1 = 3
-    op_channel_1 = 128
+    op_channel_1 = 16
     ip_channel_2 = op_channel_1
     op_channel_2 = op_channel_1 * 2
-    new_width = 192
+    new_width = 32
     kernel_size = 3
 
     teacher_conv1 = nn.Conv2d(ip_channel_1, op_channel_1, kernel_size).cuda()
     teacher_bn1 = nn.BatchNorm2d(op_channel_1).cuda()
-    teacher_conv2 = nn.Conv2d(ip_channel_2, op_channel_2, 3).cuda()
+    teacher_conv2 = nn.Conv2d(ip_channel_2, op_channel_2, kernel_size).cuda()
 
     tw1 = teacher_conv1.weight.data.to('cpu') # or .cpu() like below
     tw2 = teacher_conv2.weight.data.cpu()
-    tb1 = teacher_bn1.weight.data.cpu()
+    tbn1 = teacher_bn1.weight.data.cpu()
 
     student_conv1, student_conv2, student_bnorm = wider(
         teacher_conv1, teacher_conv2, new_width, teacher_bn1)
@@ -33,48 +33,48 @@ def _test_wider_operation():
     sw2 = student_conv2.weight.data.cpu()
     sb1 = student_bnorm.weight.data.cpu()
 
-    verify_weights(tw1.numpy(), tb1.numpy(), tw2.numpy(),
+    verify_weights(tw1.numpy(), tbn1.numpy(), tw2.numpy(),
                    sw1.numpy(), sb1.numpy(), sw2.numpy())
 
 
 def verify_weights(teacher_w1, teacher_b1, teacher_w2,
                    student_w1, student_b1, student_w2):
     import scipy.signal
-    inputs = np.random.rand(teacher_w1.shape[1], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4)
+    test_input = np.random.rand(teacher_w1.shape[1], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4)
     ori1 = np.zeros((teacher_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     ori2 = np.zeros((teacher_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new1 = np.zeros((student_w1.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
     new2 = np.zeros((student_w2.shape[0], teacher_w1.shape[3] * 4, teacher_w1.shape[2] * 4))
 
     for i in range(teacher_w1.shape[0]):
-        for j in range(inputs.shape[0]):
+        for j in range(test_input.shape[0]):
             if j == 0:
-                tmp = scipy.signal.convolve2d(inputs[j, :, :], teacher_w1[i, j, :, :], mode='same')
+                tmp = scipy.signal.convolve2d(test_input[j], teacher_w1[i, j], mode='same')
             else:
-                tmp += scipy.signal.convolve2d(inputs[j, :, :], teacher_w1[i, j, :, :], mode='same')
-        ori1[i, :, :] = tmp + teacher_b1[i]
+                tmp += scipy.signal.convolve2d(test_input[j], teacher_w1[i, j], mode='same')
+        ori1[i] = tmp + teacher_b1[i]
     for i in range(teacher_w2.shape[0]):
         for j in range(ori1.shape[0]):
             if j == 0:
-                tmp = scipy.signal.convolve2d(ori1[j, :, :], teacher_w2[i, j, :, :], mode='same')
+                tmp = scipy.signal.convolve2d(ori1[j], teacher_w2[i, j], mode='same')
             else:
-                tmp += scipy.signal.convolve2d(ori1[j, :, :], teacher_w2[i, j, :, :], mode='same')
-        ori2[i, :, :] = tmp
+                tmp += scipy.signal.convolve2d(ori1[j], teacher_w2[i, j], mode='same')
+        ori2[i] = tmp
 
     for i in range(student_w1.shape[0]):
-        for j in range(inputs.shape[0]):
+        for j in range(test_input.shape[0]):
             if j == 0:
-                tmp = scipy.signal.convolve2d(inputs[j, :, :], student_w1[i, j, :, :], mode='same')
+                tmp = scipy.signal.convolve2d(test_input[j], student_w1[i, j], mode='same')
             else:
-                tmp += scipy.signal.convolve2d(inputs[j, :, :], student_w1[i, j, :, :], mode='same')
-        new1[i, :, :] = tmp + student_b1[i]
+                tmp += scipy.signal.convolve2d(test_input[j], student_w1[i, j], mode='same')
+        new1[i] = tmp + student_b1[i]
     for i in range(student_w2.shape[0]):
         for j in range(new1.shape[0]):
             if j == 0:
-                tmp = scipy.signal.convolve2d(new1[j, :, :], student_w2[i, j, :, :], mode='same')
+                tmp = scipy.signal.convolve2d(new1[j], student_w2[i, j], mode='same')
             else:
-                tmp += scipy.signal.convolve2d(new1[j, :, :], student_w2[i, j, :, :], mode='same')
-        new2[i, :, :] = tmp
+                tmp += scipy.signal.convolve2d(new1[j], student_w2[i, j], mode='same')
+        new2[i] = tmp
 
     err = np.abs(np.sum(ori2 - new2))
 
@@ -195,7 +195,7 @@ def wider(layer1, layer2, new_width, bnorm=None):
         return layer1, layer2, bnorm
 
 
-def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
+def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix='', filters=16):
     r""" Function preserving deeper operator adding a new layer on top of the
     given layer.
 
@@ -210,6 +210,7 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
      Default Relu
     :param bnorm: Add a batch normalisation layer between two
     convolutional/dense layers if True.
+    :param filters: Number of filters of filters being deepened
 
     :return: New layers to be added in the network.
     """
@@ -228,8 +229,8 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
                 new_num_features = layer.out_features
                 new_bn_layer = nn.BatchNorm1d(num_features=new_num_features)
         else:
-            new_filter_shape = layer.kernel_size
-            new_num_channels = layer.out_channels
+            new_kernel_shape = layer.kernel_size
+            new_num_channels = filters
             # Create new convolutional layer with number of input and output
             # channels equal to number of output channel of the layer on top of
             # which new layer will be placed. The filter shape will be same. And
@@ -238,10 +239,10 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
                                      kernel_size=layer.kernel_size, padding=1)
 
             new_layer_weight = th.zeros(
-                (new_num_channels, new_num_channels) + new_filter_shape)
-            center = tuple(map(lambda x: int((x - 1) / 2), new_filter_shape))
+                (new_num_channels, new_num_channels) + new_kernel_shape)
+            center = tuple(map(lambda x: int((x - 1) / 2), new_kernel_shape))
             for i in range(new_num_channels):
-                filter_weight = th.zeros((new_num_channels,) + new_filter_shape)
+                filter_weight = th.zeros((new_num_channels,) + new_kernel_shape)
                 index = (i,) + center
                 filter_weight[index] = 1
                 new_layer_weight[i, ...] = filter_weight
@@ -275,8 +276,8 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix=''):
     seq_container.add_module(prefix + '_conv', layer)
     if bnorm:
         seq_container.add_module(prefix + '_bnorm', new_bn_layer)
-    if activation_fn is not None:
-        seq_container.add_module(prefix + '_nonlin', nn.ReLU())
+    # if activation_fn is not None:
+    #     seq_container.add_module(prefix + '_nonlin', nn.ReLU())
     seq_container.add_module(prefix + '_conv_new', new_layer)
 
     return seq_container

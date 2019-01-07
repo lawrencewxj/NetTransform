@@ -7,6 +7,7 @@ import copy
 import numpy as np
 import sys
 import torch as th
+import time
 import os
 import torch.nn as nn
 import torch.nn.init as init
@@ -14,6 +15,7 @@ import torch.optim as optim
 
 sys.path.append('../')
 from convnet import ConvNet, CIFAR10
+import im2col
 
 DATA_DIRECTORY = './data'
 MODEL_PATH = './best_model'
@@ -23,11 +25,11 @@ DISPLAY_INTERVAL = 200
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10 Example')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 64)')
-parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+parser.add_argument('--test-batch-size', type=int, default=256, metavar='N',
                     help='input batch size for testing (default: 1000)')
 parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                     help='learning rate (default: 0.001)')
 parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
                     help='SGD momentum (default: 0.9)')
@@ -83,7 +85,7 @@ test_loader = th.utils.data.DataLoader(
 def train(net, optimizer, scheduler, epoch):
     # Set the net to train mode. Only applies for certain modules when
     # BatchNorm or Drop outs are used in the net.
-    # scheduler.step()
+    scheduler.step()
     net.train(mode=True)
 
     running_loss = 0.0
@@ -122,8 +124,8 @@ def train(net, optimizer, scheduler, epoch):
     train_loss = running_loss / num_train_images
     train_accuracy = 100. * num_correct_predictions / num_train_images
 
-    # print('\nTraining Set: Avg Loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
-    #     train_loss, num_correct_predictions, num_train_images, train_accuracy))
+    print('\nTraining Set: Avg Loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)'.format(
+        train_loss, num_correct_predictions, num_train_images, train_accuracy))
 
     return train_accuracy, train_loss
 
@@ -151,8 +153,8 @@ def test(net, verbose=False):
 
     test_loss = running_loss / num_test_images
     test_accuracy = 100. * num_correct_predictions / num_test_images
-    # print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
-    #     test_loss, num_correct_predictions, num_test_images, test_accuracy))
+    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+        test_loss, num_correct_predictions, num_test_images, test_accuracy))
 
     if verbose:
         class_correct = list(0. for i in range(10))
@@ -279,7 +281,7 @@ def get_optimizer(model):
 
 
 def get_scheduler(optimizer):
-    return optim.lr_scheduler.StepLR(optimizer, step_size=60, gamma=0.2)
+    return optim.lr_scheduler.StepLR(optimizer, step_size=45, gamma=0.2)
     # return optim.lr_scheduler.ReduceLROnPlateau(
     #     optimizer, factor=0.5, mode='max', verbose=True, patience=15)
 
@@ -294,6 +296,175 @@ def save_optimizer_scheduler(optimizer, scheduler, net_type):
 
 
 if __name__ == "__main__":
+
+    np.set_printoptions(threshold=np.inf)
+
+    # # example 1: single channel
+    # img = np.array([[[[6, 2, 2], [5, 8, 7], [1, 4, 3]]]])
+    #
+    # kernel = np.array(
+    #     [[[[0, -1], [1, 0]], [[5, 4], [3, 2]], [[16, 24], [68, -2]]],
+    #      [[[60, 22], [32, 18]], [[35, 46], [7, 23]], [[78, 81], [20, 42]]]])
+
+    # img = np.random.randint(0, 5, size=(4, 4, 3, 3))
+    # # print img
+    # print img.shape
+    # img_col = im2col.im2col(img, 3, 3, pad=2)
+    # # print img_col
+    # print img_col.shape
+    # img2 = im2col.col2im(img_col, (4, 4, 3, 3), 3, 3, pad=2)
+    # img2 = img2/9
+    # print img[1]
+    # print img2[1]
+    # print img == img2
+    # exit()
+    #
+    # # img_col = im2col.im2col_indices(img, 2, 2, padding=0) # removing padding for im2col and col2im
+    # kernel_col = kernel.reshape(2, -1)  # 2 is number of filters
+    #
+    # prod = np.matmul(img_col, kernel_col.T) # for im2col and col2im methods
+    # # prod = np.matmul(kernel_col, img_col)
+    # col_to_prod = im2col.col2im(prod.T, (2, 1, 2, 2), 2, 2)
+    # # col_to_prod = im2col.col2im_indices(prod.T, (2, 1, 2, 2), 2, 2, padding=0)
+    # print col_to_prod
+    # exit()
+
+    # # example 2: multi channel
+    # img = np.array([[[[16, 24, 32], [47, 18, 26], [68, 12, 9]],
+    #                  [[26, 57, 43], [24, 21, 12], [2, 11, 19]],
+    #                  [[18, 47, 21], [4, 6, 12], [81, 22, 13]]]])
+    #
+    # kernel = np.array(
+    #     [[[[0, -1], [1, 0]], [[5, 4], [3, 2]], [[16, 24], [68, -2]]],
+    #      [[[60, 22], [32, 18]], [[35, 46], [7, 23]], [[78, 81], [20, 42]]]])
+    #
+    # print '*' * 30
+    # print img
+    # print '*' * 30
+    # img_col = im2col.im2col(img, 2, 2)
+    # print '*' * 30
+    # print img_col
+    # print '*' * 30
+    #
+    #
+    # img = im2col.col2im(img_col, (1, 3, 3, 3), 2, 2)
+    # print '*' * 30
+    # print img/[[1, 2, 1], [2, 4, 2], [1, 2, 1]]
+    # print '*' * 30
+    # exit()
+
+    # # img_col = im2col.im2col_indices(img, 2, 2, padding=0) # removing padding for im2col and col2im
+    # kernel_col = kernel.reshape(2, -1)  # 2 is number of filters
+    #
+    # prod = np.matmul(img_col, kernel_col.T) # for im2col and col2im methods
+    # # prod = np.matmul(kernel_col, img_col)
+    # col_to_prod = im2col.col2im(prod.T, (2, 1, 2, 2), 2, 2)
+    # # col_to_prod = im2col.col2im_indices(prod.T, (2, 1, 2, 2), 2, 2, padding=0)
+    # print col_to_prod
+    # exit()
+
+    # # example 3: multichannel
+    # img = np.random.rand(16, 16, 3, 3)
+    # kernel = np.random.rand(16, 16, 1, 1)
+    # output = np.random.rand(4, 3, 5, 5)
+    #
+    # img_col = im2col.im2col(input_data=img, filter_h=1, filter_w=1, stride=1, pad=0)
+    #
+    # print img_col.shape
+    # print kernel.reshape(16, -1).shape
+    # exit()
+    #
+    # output = np.concatenate((output, np.zeros((4, 1, 5, 5))), axis=1)
+    # output_col = output.reshape(4, -1).T
+    #
+    # kernel = np.concatenate((kernel, np.zeros((4, 1, 2, 2))), axis=1)
+    # kernel_col = kernel.reshape(4, -1).T  # 4 is number of filter
+    #
+    # kernel_col = np.linalg.lstsq(img_col, output_col, rcond=None)[0]
+    #
+    # exit()
+    # lamda = 1e-4
+    # error = 1e-5
+    #
+    # for i in range(50):
+    #     img_col = np.linalg.solve(
+    #         np.dot(kernel_col, kernel_col.T) + lamda * np.eye(kernel_col.shape[0]),
+    #         np.dot(kernel_col, output_col.T)).T
+    #
+    #     kernel_col = np.linalg.solve(
+    #         img_col.T.dot(img_col) + lamda * np.eye(img_col.shape[1]),
+    #         np.dot(img_col.T, output_col))
+    #
+    #     print np.linalg.norm(np.dot(img_col, kernel_col) - output_col)
+    #     if np.linalg.norm(np.dot(img_col, kernel_col) - output_col) < error:
+    #         break
+    #
+    # kernel = kernel_col.T.reshape(4, 4, 3, 3)
+    # kernel = kernel[:, :3, ...]
+    # img = im2col.col2im(col=img_col, input_shape=img.shape, filter_h=3, filter_w=3, stride=1, pad=2)
+    # exit()
+
+    # example 4: test ALS multichannel
+    # img = np.random.randint(0, 7, (1, 2, 3, 3))
+    # kernel = np.random.randint(0, 2, (1, 2, 3, 3))
+    # output = np.random.rand(4, 3, 5, 5)
+    #
+    # img = np.array([[[[4, 5, 4], [2, 0, 4], [5, 1, 1]],
+    #                  [[0, 1, 1], [4, 4, 3], [0, 3, 6]]]])
+    # img_col = im2col.im2col(img, 3, 3, 1, 1)
+    # # img_col = im2col.im2col_indices(img, 3, 3, 1, 1)
+    # print 'original image'
+    # print img
+    #
+    # kernel = np.array([[[[0, 1, 1], [0, 1, 1], [0, 0, 0]],
+    #                     [[1, 0, 0], [1, 0, 0], [1, 0, 1]]]])
+    # kernel_col = kernel.reshape(kernel.shape[0], -1).T
+    # print kernel_col.shape
+    #
+    # output = np.array([[[[13, 16, 9],
+    #                      [14, 23, 16],
+    #                      [8, 10, 12]]]])
+    # output_col = output.reshape(output.shape[0], -1).T
+    #
+    # prod = np.dot(img_col, kernel_col)
+    # output_calc = prod.reshape(1,1,3,3)
+    # print output_calc
+    # # #
+    # # exit()
+    # lamda = 1e-4
+    # error = 1e-5
+    #
+    # kernel_col = np.linalg.lstsq(img_col, output_col, rcond=None)[0]
+    #
+    # for i in range(1):
+    #     img_col = np.linalg.solve(
+    #         np.dot(kernel_col, kernel_col.T) + lamda * np.eye(kernel_col.shape[0]),
+    #         np.dot(kernel_col, output_col.T)).T
+    #
+    #     kernel_col = np.linalg.solve(
+    #         img_col.T.dot(img_col) + lamda * np.eye(img_col.shape[1]),
+    #         np.dot(img_col.T, output_col))
+    #
+    #     print np.linalg.norm(np.dot(img_col, kernel_col) - output_col)
+    #     if np.linalg.norm(np.dot(img_col, kernel_col) - output_col) < error:
+    #         break
+    #
+    # kernel = kernel_col.T.reshape(kernel.shape)
+    # # kernel = kernel[:, :3, ...]
+    # img = im2col.col2im(col=img_col, input_shape=img.shape, filter_h=3,
+    #                     filter_w=3, stride=1, padding=1)
+    # img = img / [[4, 6, 4], [6, 9, 6], [4, 6, 4]]
+    # print 'calc image'
+    # print img
+    # # exit()
+    #
+    # img_col = im2col.im2col(img, 3, 3, 1, 1)
+    # prod = np.dot(img_col, kernel_col)
+    # output = im2col.col2im(prod, (1, 1, 3, 3), 3, 3, 1, 0)
+    # print 'new prod'
+    # print output
+    # exit()
+
     logs = []
     colors = []
     trace_names = []
@@ -304,6 +475,7 @@ if __name__ == "__main__":
     else:
         visdom_live_plot = None
 
+    start_time = time.time()
     print("\n\n > Teacher (Base Network) training ... ")
     net_type = 'Teacher'
     colors.append('orange')
@@ -317,7 +489,10 @@ if __name__ == "__main__":
         teacher_model, net_type, optimizer, scheduler, visdom_live_plot)
     logs.append(log_base)
     save_optimizer_scheduler(optimizer, scheduler, net_type)
+    end_time = time.time()
 
+    print 'time to train teacher network:',
+    print end_time-start_time
     # # wider student training from Net2Net
     # print("\n\n > Wider Student training (Net2Net)... ")
     # net_type = 'WideNet2Net'
@@ -373,24 +548,7 @@ if __name__ == "__main__":
     # logs.append(log_netmorph)
     # save_optimizer_scheduler(optimizer, scheduler, net_type)
 
-    # # # Deeper student training from Net2Net
-    # print("\n\n > Deeper Student training (Net2Net)... ")
-    # net_type = 'DeeperNet2Net'
-    # colors.append('blue')
-    # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
-    # n2n_model_deeper = copy.deepcopy(teacher_model)
-    # # n2n_model_deeper.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
-    # n2n_model_deeper.deeper('net2net')
-    # n2n_model_deeper.cuda()
-    # optimizer = get_optimizer(n2n_model_deeper)
-    # scheduler = get_scheduler(optimizer)
-    # print n2n_model_deeper
-    # log_net2net, win_accuracy, win_loss = start_training(
-    #     n2n_model_deeper, net_type, optimizer, scheduler,
-    #     visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_net2net)
-
-    # # # deeper model training from scratch
+    # # deeper model training from scratch
     # print("\n\n > Deeper Network training (Random Init)... ")
     # net_type = 'DeepRandomInit'
     # colors.append('green')
@@ -405,6 +563,22 @@ if __name__ == "__main__":
     #     deeper_random_init_model, net_type, optimizer, scheduler,
     #     visdom_live_plot, win_accuracy, win_loss)
     # logs.append(log_random_init)
+
+    # # Deeper student training from Net2Net
+    # print("\n\n > Deeper Student training (Net2Net)... ")
+    # net_type = 'DeeperNet2Net'
+    # colors.append('blue')
+    # trace_names.extend(['Deeper Net2Net Train', 'Deeper Net2Net Test'])
+    # n2n_model_deeper = copy.deepcopy(teacher_model)
+    # n2n_model_deeper.deeper('net2net')
+    # n2n_model_deeper.cuda()
+    # optimizer = get_optimizer(n2n_model_deeper)
+    # scheduler = get_scheduler(optimizer)
+    # print n2n_model_deeper
+    # log_net2net, win_accuracy, win_loss = start_training(
+    #     n2n_model_deeper, net_type, optimizer, scheduler,
+    #     visdom_live_plot, win_accuracy, win_loss)
+    # logs.append(log_net2net)
 
     # Deeper student training from NetMorph
     print("\n\n > Deeper Student training (NetMorph)... ")
