@@ -299,25 +299,26 @@ if __name__ == "__main__":
 
     np.set_printoptions(threshold=np.inf)
 
-    # # example 1: single channel
+    # example 1: single channel
     # img = np.array([[[[6, 2, 2], [5, 8, 7], [1, 4, 3]]]])
     #
     # kernel = np.array(
     #     [[[[0, -1], [1, 0]], [[5, 4], [3, 2]], [[16, 24], [68, -2]]],
     #      [[[60, 22], [32, 18]], [[35, 46], [7, 23]], [[78, 81], [20, 42]]]])
 
-    # img = np.random.randint(0, 5, size=(4, 4, 3, 3))
-    # # print img
-    # print img.shape
-    # img_col = im2col.im2col(img, 3, 3, pad=2)
-    # # print img_col
-    # print img_col.shape
-    # img2 = im2col.col2im(img_col, (4, 4, 3, 3), 3, 3, pad=2)
-    # img2 = img2/9
-    # print img[1]
-    # print img2[1]
+    img = np.random.rand(4, 4, 3, 3)
+    # print img
+    print img.shape
+    img_col = im2col.im2col(img, 3, 3, padding=2)
+    # print img_col
+    print img_col.shape
+    img2 = im2col.col2im(img_col, (4, 4, 3, 3), 3, 3, padding=2)
+    img2 = img2/9
+    img_col2 = im2col.im2col(img, 3, 3, padding=2)
+    print img_col[1]
+    print img_col2[1]
     # print img == img2
-    # exit()
+    exit()
     #
     # # img_col = im2col.im2col_indices(img, 2, 2, padding=0) # removing padding for im2col and col2im
     # kernel_col = kernel.reshape(2, -1)  # 2 is number of filters

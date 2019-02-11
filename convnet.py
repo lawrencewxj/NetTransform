@@ -5,7 +5,9 @@ import net2net
 import netmorph
 import net2net_original
 
-BASE_WIDTH = 16
+from param_activation import ParamActivation
+
+BASE_WIDTH = 4
 
 
 class CIFAR10(object):
@@ -28,10 +30,10 @@ class ConvNet(nn.Module):
                                in_channels=self.net_dataset.INPUT_CHANNELS,
                                kernel_size=(3, 3), stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(num_features=self.conv1.out_channels)
-        self.conv11 = nn.Conv2d(out_channels=self.conv1.out_channels,
-                                in_channels=self.conv1.out_channels,
-                                kernel_size=(3, 3), stride=1, padding=1)
-        self.bn11 = nn.BatchNorm2d(num_features=self.conv11.out_channels)
+        # self.conv11 = nn.Conv2d(out_channels=self.conv1.out_channels,
+        #                         in_channels=self.conv1.out_channels,
+        #                         kernel_size=(3, 3), stride=1, padding=1)
+        # self.bn11 = nn.BatchNorm2d(num_features=self.conv11.out_channels)
         self.pool1 = nn.MaxPool2d(kernel_size=(3, 3), stride=2)
 
         self.conv2 = nn.Conv2d(out_channels=self.conv1.out_channels * 2,
@@ -63,9 +65,9 @@ class ConvNet(nn.Module):
 
     def forward(self, x):
         try:
-            # x = self.pool1(F.relu(self.bn1(self.conv1(x))))
-            x = self.pool1(
-                F.relu(self.bn11(self.conv11(self.bn1(self.conv1(x))))))
+            x = self.pool1(F.relu(self.bn1(self.conv1(x))))
+            # x = self.pool1(
+            #     F.relu(self.bn11(self.conv11(F.relu(self.bn1(self.conv1(x)))))))
             x = self.pool2(F.relu(self.bn2(self.conv2(x))))
             x = self.pool3(F.relu(self.bn3(self.conv3(x))))
             x = x.view(-1, x.size(1) * x.size(2) * x.size(3))
@@ -197,8 +199,8 @@ class ConvNet(nn.Module):
         elif operation == 'net2net_original':
             deeper = net2net_original.deeper
 
-        self.conv1 = deeper(self.conv1, nn.ReLU, bnorm=True, prefix='l1',
-                            filters=self.conv1.out_channels)
+        self.conv1 = deeper(self.conv1, ParamActivation(), bnorm=True,
+                            prefix='l1', filters=4)
         # self.conv2 = deeper(self.conv2, nn.ReLU, bnorm=True, prefix='l2')
         # self.conv3 = deeper(self.conv3, nn.ReLU, bnorm=True, prefix='l3')
         # self.conv1 = deeper(self.conv1, nn.ReLU, bnorm_flag=True)

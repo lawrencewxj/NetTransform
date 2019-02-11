@@ -241,7 +241,7 @@ def practical_netmorph(parent_filter_wt):
 
 
 def decompose_filter(parent_filter_wt, filters=16):
-    lamda = 1e-4
+    lamda = 0.0001
     error = 1e-7
 
     c1 = parent_filter_wt.shape[1]
@@ -267,36 +267,43 @@ def decompose_filter(parent_filter_wt, filters=16):
     # var = wt.var()
     output = np.concatenate(
         (new_weight, np.zeros((c2, c2 - c1, k_expanded, k_expanded))), axis=1)
-
+    output = np.concatenate(
+        (output, np.zeros((filters - c2, c2, k_expanded, k_expanded))), axis=0)
     # NOISE_RATIO = 1e-5
     # noise_range = NOISE_RATIO * np.ptp(parent_filter_wt.flatten())
     # noise = np.random.uniform(-noise_range, noise_range, size=output.shape)
     # output = output + noise
 
-    output_col = output.reshape(c2, -1).T
+    output_col = output.reshape(filters, -1).T
     # output_col2 = np.random.normal(0, 1e-2, size=output_col.shape)
 
     # print np.linalg.norm(output_col2 - output_col)
     # exit()
     # Below 2 lines can be removed
     # kernel is equivalent to filter f1 which will convolve image (=img_col)
-    # kernel = np.random.normal(0, 1e-2, size=(c2, c, k1, k1))
-    kernel = np.random.choice(output.flatten(), size=(c2, filters, k1, k1))
-    kernel_col = kernel.reshape(c2, -1).T
+    kernel = np.random.normal(0, 1e-3, size=(filters, c1, k1, k1))
+    kernel = np.concatenate(
+        (kernel, np.zeros((filters, filters - c1, k1, k1))), axis=1)
+    # kernel = np.random.choice(output.flatten(), size=(c2, filters, k1, k1))
+    kernel_col = kernel.reshape(filters, -1).T
 
     # img is the f2 filter treated as image to be convolved by f1(=kernel)
     # img_col is the 2D representation of a filter for matrix multiplication
-    # img = np.random.normal(0, 1e-2, size=(c2, c, k2, k2))
-    img = np.random.choice(output.flatten(), size=(c2, filters, k2, k2))
-    # # exit()
-    img_col = im2col.im2col(img, k1, k1, stride=1, padding=2)
+    img = np.random.normal(0, 1e-3, size=(c2, filters, k2, k2))
+    # # img = np.random.choice(output.flatten(), size=(c2, filters, k2, k2))
+    img_col = im2col.im2col(img, k1, k1, stride=1, padding=k_expanded - k)
     # img_col = np.random.normal(
-    #     0, 1e-2, size=(k_expanded * k_expanded * c2, k1 * k1 * c))
+    #     0, 1e-2, size=(k_expanded * k_expanded * c2, k1 * k1 * filters))
     # img_col_original = img_col.copy()
     # kernel_col = np.linalg.lstsq(img_col, output_col, rcond=None)[0]
 
-    # print kernel_col.shape
+    print kernel_col.shape
+    print img_col.shape
+    print output_col.shape
+    print 'before calculating prod: ',
+    print np.linalg.norm(np.dot(img_col, kernel_col) - output_col)
     # exit()
+
     for i in range(10):
         img_col = np.linalg.solve(
             np.dot(kernel_col, kernel_col.T) + lamda * np.eye(
@@ -311,29 +318,57 @@ def decompose_filter(parent_filter_wt, filters=16):
         if np.linalg.norm(np.dot(img_col, kernel_col) - output_col) < error:
             break
 
-    print 'before converting to original image after calculating prod: ',
+    x1 = img_col
+    # c = 0.25
+    # kernel_col = kernel_col * c
+    # img_col = img_col / c
+    # Using Weighted ALS
+    # print output_col
+    # z = output_col > 0
+    # z = z.astype(np.float32)
+    # for n in range(20):
+    #     for i, zi in enumerate(z):
+    #         img_col[i] = np.linalg.solve(
+    #             np.dot(kernel_col, np.dot(np.diag(zi), kernel_col.T)) + lamda * np.eye(kernel_col.shape[0]),
+    #             np.dot(kernel_col, np.dot(np.diag(zi), output_col[i].T))).T
+    #
+    #     for j, zj in enumerate(z.T):
+    #         kernel_col[:, j] = np.linalg.solve(
+    #             np.dot(img_col.T, np.dot(np.diag(zj), img_col)) + lamda * np.eye(img_col.shape[1]),
+    #             np.dot(img_col.T, np.dot(np.diag(zj), output_col[:, j])))
+    #
+    #     print np.linalg.norm(np.dot(img_col, kernel_col) - output_col)
+    #     if np.linalg.norm(np.dot(img_col, kernel_col) - output_col) < error:
+    #         break
+
+
+    print 'after calculating prod: ',
     new_prod = np.dot(img_col, kernel_col)
     print np.linalg.norm(new_prod - output_col)
 
-    kernel = kernel_col.T.reshape(filters, c2, k1, k1)
+    kernel = kernel_col.T.reshape(filters, filters, k1, k1)
     kernel = kernel[:, :c1, ...]
 
+    print 'diff pad',
+    print k_expanded - k
     img_calculated = im2col.col2im(col=img_col, input_shape=(c2, filters, k2, k2),
                                    filter_h=k1, filter_w=k1,
                                    padding=k_expanded - k)
     # img_calculated = im2col.recover_input(
-    #     input=img_col, kernel_size=k1, stride=1, outshape=(c2, c, k2, k2))
+    #     input=img_col, kernel_size=k1, stride=1, outshape=(c2, filters, k2, k2))
     img_calculated = img_calculated / 9  # because original matrix elements are added 9 times , for double padding
     # img_calculated = img_calculated/[[1, 2, 1], [2, 4, 2], [1, 2, 1]] for zero padding
     # img = (img / ([[4, 6, 4], [6, 9, 6], [4, 6, 4]]))/ for single padding
     # print 'image_col error: ',
     # print np.linalg.norm((img_col - img_col_original))
-    # print 'image error: ',
-    # print np.linalg.norm((img_calculated - img))
+    print 'image error: ',
+    print np.linalg.norm((img_calculated - img))
     #
-    img_col2 = im2col.im2col(img_calculated, 3, 3, 1, 2)
+    img_col2 = im2col.im2col(img_calculated, k1, k1, stride=1, padding=k_expanded - k)
     print 'after converting, product error = ',
-    print np.linalg.norm(np.dot(img_col2, kernel_col) - output_col)
+    print np.linalg.norm(img_col2 - x1)
+    exit()
+    # exit()
     # img = im2col.recover_input(input=img_col, kernel_size=k1, stride=1,
     #                            outshape=(c2, c, k2, k2))
     # exit()
@@ -397,15 +432,18 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix='', filters=16):
 
             # new_num_channels = layer.out_channels
             new_layer1 = th.nn.Conv2d(f1.shape[1], f1.shape[0],
-                                      kernel_size=layer.kernel_size, padding=1)
+                                      kernel_size=(f1.shape[2], f1.shape[3]),
+                                      padding=1)
             new_layer2 = th.nn.Conv2d(f2.shape[1], f2.shape[0],
-                                      kernel_size=layer.kernel_size, padding=1)
+                                      kernel_size=(f2.shape[2], f2.shape[3]),
+                                      padding=1)
 
             new_layer1.weight.data = th.from_numpy(f1).float()
             new_layer2.weight.data = th.from_numpy(f2).float()
 
             new_layer1.bias.data = th.zeros(new_layer1.out_channels)
-            new_layer2.bias.data = th.zeros(new_layer2.out_channels)
+            new_layer2.bias.data = teacher_bias
+            # new_layer2.bias.data = th.zeros(new_layer2.out_channels)
 
             if bnorm:
                 new_num_features = new_layer1.out_channels
@@ -424,8 +462,8 @@ def deeper(layer, activation_fn=nn.ReLU(), bnorm=True, prefix='', filters=16):
     seq_container.add_module(prefix + '_conv', new_layer1)
     if bnorm:
         seq_container.add_module(prefix + '_bnorm', new_bn_layer)
-    # if activation_fn is not None:
-    #     seq_container.add_module(prefix + '_nonlin', nn.ReLU())
+    if activation_fn is not None:
+        seq_container.add_module(prefix + '_nonlin', activation_fn)
     seq_container.add_module(prefix + '_conv_new', new_layer2)
 
     return seq_container

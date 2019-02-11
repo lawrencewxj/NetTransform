@@ -129,13 +129,17 @@ def recover_input(input, kernel_size, stride, outshape):
 
     print 'input shape',
     print input.shape
+    print 'output shape',
+    print outshape
+
     H, W = input.shape
     batch, ch, h, w = outshape
     original_input = np.zeros(outshape)
-    first_row_index = np.arange(0, w, kernel_size)
-    first_col_index = np.arange(0, h, kernel_size)
+    first_row_index = np.arange(0, w, stride)
+    print first_row_index
+    first_col_index = np.arange(0, h, stride)
 
-    patches_row = int((w - kernel_size) / stride) + 1
+    patches_row = int((w - kernel_size + 4) / stride) + 1
     rowend_index = kernel_size - (w - first_row_index[-1])
     colend_index = kernel_size - (h - first_col_index[-1])
 
@@ -147,15 +151,24 @@ def recover_input(input, kernel_size, stride, outshape):
     for k in range(batch):
         for i in range(len(first_col_index)):
             for j in range(len(first_row_index)):
-                w_index = first_row_index[j] + i * patches_row + k * (int((h - kernel_size) / stride) + 1) * (int((w - kernel_size) / stride) + 1)
-
+                w_index = first_row_index[j] + i * patches_row + k * (int((h - kernel_size + 4) / stride) + 1) * (int((w - kernel_size + 4) / stride) + 1)
+                print w_index
                 if i != len(first_col_index) - 1 and j != len(first_row_index) - 1:
-                    original_input[k, first_row_index[j]: first_row_index[j] + kernel_size, first_col_index[i]:  first_col_index[i]+kernel_size, :] = input[w_index, :].reshape(kernel_size, kernel_size, -1)
+                    print 'ssssssssssss'
+                    print input[w_index, :].reshape(-1, kernel_size, kernel_size)
+                    # original_input[k, :, first_row_index[j]: first_row_index[j] + kernel_size, first_col_index[i]:  first_col_index[i]+kernel_size] = input[w_index, :].reshape(-1, kernel_size, kernel_size)
                 elif i == len(first_col_index) - 1 and j != len(first_row_index) - 1:
-                    original_input[k, first_col_index[-1] + colend_index:, first_row_index[i]:first_row_index[i] + kernel_size, :] = input[w_index, :].reshape(kernel_size, kernel_size, -1)[rowend_index:, :, :]
+                    print 'yyyyyyy'
+                    print input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, rowend_index:, :]
+                    # original_input[k, :, first_col_index[-1] + colend_index:, first_row_index[i]:first_row_index[i] + kernel_size] = input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, rowend_index:, :]
                 elif i != len(first_col_index) - 1 and j == len(first_row_index) - 1:
-                    original_input[k, first_col_index[i]:first_col_index[i] + kernel_size, first_row_index[-1] + rowend_index:, :] = input[w_index, :].reshape(kernel_size, kernel_size, -1)[:, colend_index:, :]
+                    print 'kkkkkkkkkkkk'
+                    print input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, :, colend_index:]
+                    # original_input[k, :, first_col_index[i]:first_col_index[i] + kernel_size, first_row_index[-1] + rowend_index:] = input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, :, colend_index:]
                 else:
-                    original_input[k, :, first_col_index[-1] + colend_index:, first_row_index[-1] + rowend_index:] = input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, rowend_index:, colend_index:]
+                    print 'xxxxxxxxx'
+                    print input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, rowend_index:, colend_index:]
+                    # original_input[k, :, first_col_index[-1] + colend_index:, first_row_index[-1] + rowend_index:] = input[w_index, :].reshape(-1, kernel_size, kernel_size)[:, rowend_index:, colend_index:]
 
+    print original_input
     return original_input
