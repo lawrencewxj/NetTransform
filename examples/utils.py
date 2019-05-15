@@ -335,7 +335,7 @@ class PlotLearning(object):
 
 if __name__ == '__main__':
 
-    filename = './logs/accuracy_run10.json'
+    filename = './logs/accuracy_n2n_deeper_deeper11.json'
 
     visdom_plot_final = PlotLearning(
         './plots/cifar/', 10, plot_name='run10', env_name='check_plot')

@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # C extensions
 *.so
@@ -103,9 +104,14 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# data & plot folder
-data/
-plots/
+# data, logs & plot folder
+examples/data/
+examples/plots/
+examples/best_model/
+examples/logs/
 
 # IDE settings file
 .idea/
+
+.pytest_cache/
+

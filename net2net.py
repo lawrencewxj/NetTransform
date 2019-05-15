@@ -95,9 +95,15 @@ def wider(layer1, layer2, new_width, bnorm=None):
 
         # Convert Linear layers to Conv if linear layer follows target layer
         if isinstance(layer1, nn.Conv2d) and isinstance(layer2, nn.Linear):
+	    print w2.shape
+	    print w1.shape
+	    print w2.size(1)
+	    print w1.size(0)
             assert w2.size(1) % w1.size(0) == 0, 'Linear units need to be multiple'
             if w1.dim() == 4:
                 kernel_size = int(np.sqrt(w2.size(1) // w1.size(0)))
+		print kernel_size
+		exit()
                 w2 = w2.view(
                     w2.size(0), w2.size(1) // kernel_size ** 2, kernel_size, kernel_size)
         else:

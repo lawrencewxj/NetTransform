@@ -367,7 +367,7 @@ def decompose_filter(parent_filter_wt, filters=16):
     img_col2 = im2col.im2col(img_calculated, k1, k1, stride=1, padding=k_expanded - k)
     print 'after converting, product error = ',
     print np.linalg.norm(img_col2 - x1)
-    exit()
+    # exit()
     # exit()
     # img = im2col.recover_input(input=img_col, kernel_size=k1, stride=1,
     #                            outshape=(c2, c, k2, k2))
@@ -413,6 +413,11 @@ def decompose_filter(parent_filter_wt, filters=16):
     # print np.linalg.norm(new_prod - output_col)
     # exit()
     # *************************************************************
+
+    print parent_filter_wt.shape
+    print kernel.shape
+    print img_calculated.shape
+    exit()
 
     return kernel, img_calculated
 

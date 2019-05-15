@@ -282,8 +282,8 @@ def get_optimizer(model):
 
 def get_scheduler(optimizer):
     return optim.lr_scheduler.StepLR(optimizer, step_size=45, gamma=0.2)
-    # return optim.lr_scheduler.ReduceLROnPlateau(
-    #     optimizer, factor=0.5, mode='max', verbose=True, patience=15)
+    return optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, factor=0.5, mode='max', verbose=True, patience=15)
 
 
 def save_optimizer_scheduler(optimizer, scheduler, net_type):
@@ -306,19 +306,19 @@ if __name__ == "__main__":
     #     [[[[0, -1], [1, 0]], [[5, 4], [3, 2]], [[16, 24], [68, -2]]],
     #      [[[60, 22], [32, 18]], [[35, 46], [7, 23]], [[78, 81], [20, 42]]]])
 
-    img = np.random.rand(4, 4, 3, 3)
-    # print img
-    print img.shape
-    img_col = im2col.im2col(img, 3, 3, padding=2)
-    # print img_col
-    print img_col.shape
-    img2 = im2col.col2im(img_col, (4, 4, 3, 3), 3, 3, padding=2)
-    img2 = img2/9
-    img_col2 = im2col.im2col(img, 3, 3, padding=2)
-    print img_col[1]
-    print img_col2[1]
-    # print img == img2
-    exit()
+    # img = np.random.rand(4, 4, 3, 3)
+    # # print img
+    # print img.shape
+    # img_col = im2col.im2col(img, 3, 3, padding=2)
+    # # print img_col
+    # print img_col.shape
+    # img2 = im2col.col2im(img_col, (4, 4, 3, 3), 3, 3, padding=2)
+    # img2 = img2/9
+    # img_col2 = im2col.im2col(img, 3, 3, padding=2)
+    # print img_col[1]
+    # print img_col2[1]
+    # # print img == img2
+    # exit()
     #
     # # img_col = im2col.im2col_indices(img, 2, 2, padding=0) # removing padding for im2col and col2im
     # kernel_col = kernel.reshape(2, -1)  # 2 is number of filters
@@ -494,23 +494,24 @@ if __name__ == "__main__":
 
     print 'time to train teacher network:',
     print end_time-start_time
-    # # wider student training from Net2Net
-    # print("\n\n > Wider Student training (Net2Net)... ")
-    # net_type = 'WideNet2Net'
-    # colors.append('blue')
-    # trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
-    # n2n_model_wider = copy.deepcopy(teacher_model)
-    # n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
-    # n2n_model_wider.wider('net2net', widening_factor=2)
-    # optimizer = get_optimizer(n2n_model_wider)
-    # scheduler = get_scheduler(optimizer)
-    # print n2n_model_wider
-    # log_net2net, win_accuracy, win_loss = start_training(
-    #     n2n_model_wider, net_type, optimizer, scheduler,
-    #     visdom_live_plot, win_accuracy, win_loss)
-    # logs.append(log_net2net)
-    # save_optimizer_scheduler(optimizer, scheduler, net_type)
+    # wider student training from Net2Net
+    print("\n\n > Wider Student training (Net2Net)... ")
+    net_type = 'WideNet2Net'
+    colors.append('blue')
+    trace_names.extend(['Wider Net2Net Train', 'Wider Net2Net Test'])
+    n2n_model_wider = copy.deepcopy(teacher_model)
+    n2n_model_wider.load_state_dict(th.load(os.path.join(MODEL_PATH, args.plot_name + '_bestmodel.pt')))
+    n2n_model_wider.wider('net2net', widening_factor=2)
+    optimizer = get_optimizer(n2n_model_wider)
+    scheduler = get_scheduler(optimizer)
+    print n2n_model_wider
+    log_net2net, win_accuracy, win_loss = start_training(
+        n2n_model_wider, net_type, optimizer, scheduler,
+        visdom_live_plot, win_accuracy, win_loss)
+    logs.append(log_net2net)
+    save_optimizer_scheduler(optimizer, scheduler, net_type)
 
+    exit()
     # # wider model training from scratch
     # print("\n\n > Wider Network training (Wider Random Init)... ")
     # net_type = 'WideRandInit'
